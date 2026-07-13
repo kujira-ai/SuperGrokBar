@@ -14,15 +14,9 @@ macOS **menu bar** monitor for SuperGrok / Grok Build usage credits.
 ### Homebrew (recommended)
 
 ```bash
-brew install kujira-ai/tap/supergrok-bar
-supergrok-bar
-```
-
-If the tap is not set up yet, install from this repo:
-
-```bash
-brew install --HEAD --formula \
-  https://raw.githubusercontent.com/kujira-ai/SuperGrokBar/main/Formula/supergrok-bar.rb
+brew tap kujira-ai/tap
+brew trust kujira-ai/tap   # required by modern Homebrew for third-party taps
+brew install supergrok-bar
 supergrok-bar
 ```
 
