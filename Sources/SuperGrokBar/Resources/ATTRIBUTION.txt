@@ -1,0 +1,10 @@
+Menu bar mark
+-------------
+Derived from the public Grok / xAI logo path published in:
+  https://github.com/lobehub/lobe-icons  (packages/static-svg/icons/xai.svg)
+
+Official brand guidelines and logo download:
+  https://x.ai/legal/brand-guidelines
+  https://data.x.ai/logos/SpaceXAI_Grok_Assets.zip
+
+xAI trademarks belong to xAI. This project is not affiliated with or endorsed by xAI.

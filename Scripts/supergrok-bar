@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# CLI entrypoint: install/start the menu bar app, or uninstall it.
+set -euo pipefail
+
+APP_NAME="SuperGrokBar"
+APP_DIR="${HOME}/Applications/${APP_NAME}.app"
+BIN_DIR="${APP_DIR}/Contents/MacOS"
+RES_DIR="${APP_DIR}/Contents/Resources"
+LABEL="com.kujira.SuperGrokBar"
+PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
+VERSION="1.0.0"
+
+# Resolve packaged binary (Homebrew libexec or sibling of this script after release install)
+resolve_exec() {
+  if [[ -n "${SUPERGROK_BAR_EXEC:-}" && -x "${SUPERGROK_BAR_EXEC}" ]]; then
+    echo "${SUPERGROK_BAR_EXEC}"
+    return
+  fi
+  # Homebrew: formula installs binary next to this script's libexec via env
+  local here
+  here="$(cd "$(dirname "$0")" && pwd)"
+  if [[ -x "${here}/../libexec/SuperGrokBar" ]]; then
+    echo "${here}/../libexec/SuperGrokBar"
+    return
+  fi
+  if [[ -x "${here}/SuperGrokBar" ]]; then
+    echo "${here}/SuperGrokBar"
+    return
+  fi
+  # Dev: built via swift
+  local root
+  root="$(cd "$(dirname "$0")/.." && pwd)"
+  if [[ -x "${root}/.build/release/SuperGrokBar" ]]; then
+    echo "${root}/.build/release/SuperGrokBar"
+    return
+  fi
+  echo "error: SuperGrokBar binary not found. Build with 'swift build -c release' or install via Homebrew." >&2
+  exit 1
+}
+
+resolve_resource_dir() {
+  local exec_path="$1"
+  local dir
+  dir="$(cd "$(dirname "$exec_path")" && pwd)"
+  if [[ -d "${dir}/SuperGrokBar_SuperGrokBar.bundle" ]]; then
+    echo "${dir}/SuperGrokBar_SuperGrokBar.bundle"
+    return
+  fi
+  local root
+  root="$(cd "$(dirname "$0")/.." && pwd)"
+  if [[ -d "${root}/Sources/SuperGrokBar/Resources" ]]; then
+    echo "${root}/Sources/SuperGrokBar/Resources"
+    return
+  fi
+  echo ""
+}
+
+stop_app() {
+  if launchctl print "gui/$(id -u)/${LABEL}" &>/dev/null; then
+    launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
+  fi
+  pkill -x SuperGrokBar 2>/dev/null || true
+  sleep 0.2
+}
+
+install_app() {
+  local exec_path resource_dir
+  exec_path="$(resolve_exec)"
+  resource_dir="$(resolve_resource_dir "$exec_path")"
+
+  stop_app
+  rm -rf "$APP_DIR"
+  mkdir -p "$BIN_DIR" "$RES_DIR"
+
+  cp "$exec_path" "${BIN_DIR}/${APP_NAME}"
+  chmod +x "${BIN_DIR}/${APP_NAME}"
+
+  if [[ -n "$resource_dir" && -d "$resource_dir" ]]; then
+    # SPM resource bundle or Sources/Resources
+    if [[ "$(basename "$resource_dir")" == *.bundle ]]; then
+      cp -R "$resource_dir" "$RES_DIR/"
+      find "$resource_dir" -type f \( -name '*.png' -o -name '*.svg' -o -name 'ATTRIBUTION.txt' \) \
+        -exec cp {} "$RES_DIR/" \;
+    else
+      cp -R "${resource_dir}/." "$RES_DIR/"
+    fi
+  fi
+
+  cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>${APP_NAME}</string>
+  <key>CFBundleIdentifier</key>
+  <string>${LABEL}</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>SuperGrok Bar</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${VERSION}</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+</dict>
+</plist>
+PLIST
+  echo -n 'APPL????' > "${APP_DIR}/Contents/PkgInfo"
+
+  mkdir -p "${HOME}/Library/LaunchAgents"
+  cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${BIN_DIR}/${APP_NAME}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+</dict>
+</plist>
+PLIST
+
+  launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null \
+    || launchctl load -w "$PLIST" 2>/dev/null \
+    || true
+
+  if ! pgrep -x SuperGrokBar >/dev/null; then
+    open "$APP_DIR" 2>/dev/null || "${BIN_DIR}/${APP_NAME}" &
+  fi
+
+  echo "SuperGrok Bar ${VERSION} is running in the menu bar."
+  echo "  App:         ${APP_DIR}"
+  echo "  LaunchAgent: ${PLIST}"
+}
+
+uninstall_app() {
+  stop_app
+  rm -f "$PLIST"
+  rm -rf "$APP_DIR"
+  echo "Uninstalled SuperGrok Bar (menu bar app + LaunchAgent)."
+}
+
+usage() {
+  cat <<EOF
+SuperGrok Bar — SuperGrok usage in the macOS menu bar
+
+Usage:
+  supergrok-bar              Install/start the menu bar app (default)
+  supergrok-bar start        Same as above
+  supergrok-bar uninstall    Remove app + LaunchAgent
+  supergrok-bar version      Print version
+  supergrok-bar help         Show this help
+
+Requires: grok login  (~/.grok/auth.json)
+EOF
+}
+
+case "${1:-start}" in
+  start|install|"") install_app ;;
+  uninstall|remove) uninstall_app ;;
+  version|--version|-v) echo "$VERSION" ;;
+  help|--help|-h) usage ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
