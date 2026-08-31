@@ -15,6 +15,10 @@ let package = Package(
             path: "Sources/SuperGrokBar",
             resources: [
                 .copy("Resources")
+            ],
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
+                .linkedFramework("Security")
             ]
         )
     ]

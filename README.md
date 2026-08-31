@@ -5,8 +5,8 @@ macOS **menu bar** monitor for SuperGrok / Grok Build usage credits.
 ![menu bar](https://img.shields.io/badge/macOS-14%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 - Menu bar only (no web dashboard)
-- Grok/xAI mark + live usage %
-- Reads `~/.grok/auth.json` and probes grok.com billing
+- Grok/xAI mark + live Grok Bot and Grok Build usage %
+- Reads `~/.grok/auth.json` for Grok Build credits and Grok Bot / Cursor.app's local session for Grok Bot weekly usage
 - Launch at Login via LaunchAgent
 
 ## Install
@@ -42,9 +42,12 @@ Download `SuperGrokBar-*-macos.zip` from [Releases](https://github.com/kujira-ai
 
 | Item | Action |
 |------|--------|
-| Usage / Plan / Resets / Account | Live SuperGrok credits |
+| Grok Bot / Grok Build / Plan / Account | Live Grok Bot weekly pool plus grok.com Build credits |
 | Refresh | Re-fetch usage now |
-| Open Grok Usage… | Opens grok.com usage |
+| Open Grok Bot Plan… | Opens the Grok Bot plan screen |
+| Open Cursor Spending… | Opens cursor.com spending (Grok Bot bar) |
+| Open grok.com Usage… | Opens grok.com usage |
+| Link SuperGrok… | Shown when this Cursor account has no Bot pool |
 | Launch at Login | Toggle auto-start |
 | Quit | Exit |
 
@@ -64,13 +67,13 @@ brew uninstall supergrok-bar
 swift build
 swift run SuperGrokBar
 ./Scripts/install.sh
-./Scripts/package-release.sh 1.0.0
+./Scripts/package-release.sh 1.1.0
 ```
 
 ## Notes
 
 - Polls about every 60 seconds.
-- Network only to `grok.com` for your own billing snapshot.
+- Menu bar shows both pools, e.g. `bot 42% · build 18%`. Network to `grok.com` (Build credits) and `cursor.com` (`/api/dashboard/get-sand-usage-status` for Grok Bot). Grok Bot usage is metered on Cursor, not grok.com. Link SuperGrok on the Grok Bot plan screen if the bar says "link".
 - Independent of [onWatch](https://github.com/onllm-dev/onwatch).
 
 ## Logo

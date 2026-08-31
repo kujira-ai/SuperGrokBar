@@ -8,7 +8,8 @@ final class StatusItemController: NSObject {
     private let state = AppState()
     private var menu: NSMenu?
 
-    private lazy var percentItem = NSMenuItem(title: "Usage: —", action: nil, keyEquivalent: "")
+    private lazy var percentItem = NSMenuItem(title: "Grok Bot: —", action: nil, keyEquivalent: "")
+    private lazy var grokCreditsItem = NSMenuItem(title: "Grok Build: —", action: nil, keyEquivalent: "")
     private lazy var planItem = NSMenuItem(title: "Plan: —", action: nil, keyEquivalent: "")
     private lazy var resetItem = NSMenuItem(title: "Resets: —", action: nil, keyEquivalent: "")
     private lazy var accountItem = NSMenuItem(title: "Account: —", action: nil, keyEquivalent: "")
@@ -33,7 +34,7 @@ final class StatusItemController: NSObject {
             button.image = Self.menuBarImage()
             button.imagePosition = .imageLeading
             button.title = "…"
-            button.toolTip = "SuperGrok usage"
+            button.toolTip = "Grok Bot and Grok Build usage"
             button.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         }
 
@@ -41,6 +42,7 @@ final class StatusItemController: NSObject {
         menu.autoenablesItems = false
 
         percentItem.isEnabled = false
+        grokCreditsItem.isEnabled = false
         planItem.isEnabled = false
         resetItem.isEnabled = false
         accountItem.isEnabled = false
@@ -49,6 +51,7 @@ final class StatusItemController: NSObject {
         errorItem.isHidden = true
 
         menu.addItem(percentItem)
+        menu.addItem(grokCreditsItem)
         menu.addItem(planItem)
         menu.addItem(resetItem)
         menu.addItem(accountItem)
@@ -59,9 +62,22 @@ final class StatusItemController: NSObject {
         refreshItem.target = self
         menu.addItem(refreshItem)
 
-        let openUsage = NSMenuItem(title: "Open Grok Usage…", action: #selector(openUsage(_:)), keyEquivalent: "o")
+        let openBotPlan = NSMenuItem(title: "Open Grok Bot Plan…", action: #selector(openBotPlan(_:)), keyEquivalent: "p")
+        openBotPlan.target = self
+        menu.addItem(openBotPlan)
+
+        let openSpending = NSMenuItem(title: "Open Cursor Spending…", action: #selector(openSpending(_:)), keyEquivalent: "")
+        openSpending.target = self
+        menu.addItem(openSpending)
+
+        let openUsage = NSMenuItem(title: "Open grok.com Usage…", action: #selector(openUsage(_:)), keyEquivalent: "o")
         openUsage.target = self
         menu.addItem(openUsage)
+
+        let linkSuperGrok = NSMenuItem(title: "Link SuperGrok…", action: #selector(linkSuperGrok(_:)), keyEquivalent: "")
+        linkSuperGrok.target = self
+        linkSuperGrok.tag = 710
+        menu.addItem(linkSuperGrok)
 
         let openGrok = NSMenuItem(title: "Open grok.com…", action: #selector(openGrok(_:)), keyEquivalent: "")
         openGrok.target = self
@@ -103,24 +119,58 @@ final class StatusItemController: NSObject {
 
     private func tooltipText() -> String {
         if let usage = state.usage {
-            var parts = ["SuperGrok \(Int(usage.usedPercent.rounded()))% used"]
-            if let resets = usage.resetsAt {
-                parts.append("resets \(AppState.formatReset(resets))")
+            var parts: [String] = []
+            if usage.needsSuperGrokLink {
+                parts.append("Grok Bot: SuperGrok not linked")
+            } else if let bot = usage.botPercent {
+                var botPart = "Grok Bot \(Int(bot.rounded()))% used"
+                if let resets = usage.botResetsAt {
+                    botPart += " (resets \(AppState.formatReset(resets)))"
+                }
+                parts.append(botPart)
+            }
+            if let grok = usage.grokPercent {
+                var grokPart = "Grok Build \(Int(grok.rounded()))% used"
+                if let resets = usage.grokResetsAt {
+                    grokPart += " (resets \(AppState.formatReset(resets)))"
+                }
+                parts.append(grokPart)
+            } else {
+                parts.append("Grok Build unavailable")
             }
             return parts.joined(separator: " · ")
         }
         if let err = state.lastError {
             return "SuperGrok Bar: \(err)"
         }
-        return "SuperGrok usage"
+        return "Grok Bot and Grok Build usage"
     }
 
     private func rebuildMenuLabels() {
         if let usage = state.usage {
-            let pct = Int(usage.usedPercent.rounded())
-            percentItem.title = "Usage: \(pct)%  (\(usage.status.rawValue))"
+            if usage.needsSuperGrokLink {
+                percentItem.title = AppState.formatPercentLine(
+                    name: "Grok Bot",
+                    percent: nil,
+                    resetsAt: nil,
+                    placeholder: "not linked"
+                )
+            } else {
+                percentItem.title = AppState.formatPercentLine(
+                    name: "Grok Bot",
+                    percent: usage.botPercent,
+                    resetsAt: usage.botResetsAt
+                )
+            }
+            grokCreditsItem.title = AppState.formatPercentLine(
+                name: "Grok Build",
+                percent: usage.grokPercent,
+                resetsAt: usage.grokResetsAt
+            )
+            grokCreditsItem.isHidden = false
             planItem.title = "Plan: \(usage.loginMethod)"
-            resetItem.title = "Resets: \(AppState.formatReset(usage.resetsAt))"
+            // Per-source reset times live on the Bot / Build lines.
+            resetItem.isHidden = true
             if let email = usage.email, !email.isEmpty {
                 accountItem.title = "Account: \(email)"
                 accountItem.isHidden = false
@@ -129,9 +179,11 @@ final class StatusItemController: NSObject {
             }
             updatedItem.title = "Updated: \(AppState.formatFetched(usage.fetchedAt))"
         } else {
-            percentItem.title = "Usage: —"
+            percentItem.title = "Grok Bot: —"
+            grokCreditsItem.title = "Grok Build: —"
+            grokCreditsItem.isHidden = false
             planItem.title = "Plan: —"
-            resetItem.title = "Resets: —"
+            resetItem.isHidden = true
             accountItem.title = "Account: —"
             updatedItem.title = "Updated: —"
         }
@@ -141,6 +193,10 @@ final class StatusItemController: NSObject {
             errorItem.isHidden = false
         } else {
             errorItem.isHidden = true
+        }
+
+        if let link = menu?.items.first(where: { $0.tag == 710 }) {
+            link.isHidden = !(state.usage?.needsSuperGrokLink ?? false)
         }
 
         launchItem.state = state.launchAtLoginEnabled ? .on : .off
@@ -185,6 +241,18 @@ final class StatusItemController: NSObject {
 
     @objc private func openUsage(_ sender: Any?) {
         state.openGrokUsage()
+    }
+
+    @objc private func openSpending(_ sender: Any?) {
+        state.openBotSpending()
+    }
+
+    @objc private func openBotPlan(_ sender: Any?) {
+        state.openGrokBotPlan()
+    }
+
+    @objc private func linkSuperGrok(_ sender: Any?) {
+        state.openLinkSuperGrok()
     }
 
     @objc private func openGrok(_ sender: Any?) {

@@ -10,15 +10,51 @@ final class AppState {
     var isRefreshing = false
     var launchAtLoginEnabled: Bool = LaunchAtLogin.isEnabled
 
-    /// Compact menubar title, e.g. "87%" or "—"
+    /// Compact menubar title, e.g. "bot 42% · build 18%" or "link"
     var titleText: String {
         if let usage {
-            return "\(Int(usage.usedPercent.rounded()))%"
+            return Self.formatBarTitle(usage)
         }
         if lastError != nil {
             return "!"
         }
         return "…"
+    }
+
+    static func formatBarTitle(_ usage: GrokUsage) -> String {
+        var parts: [String] = []
+        if usage.needsSuperGrokLink {
+            parts.append("link")
+        } else if let bot = usage.botPercent {
+            parts.append("bot \(Int(bot.rounded()))%")
+        } else if usage.source == .grokBot {
+            parts.append("bot —")
+        }
+        if let grok = usage.grokPercent {
+            parts.append("build \(Int(grok.rounded()))%")
+        } else if usage.botPercent != nil || usage.needsSuperGrokLink {
+            parts.append("build —")
+        }
+        if parts.isEmpty {
+            return "\(Int(usage.usedPercent.rounded()))%"
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    static func formatPercentLine(name: String, percent: Double?, resetsAt: Date?, placeholder: String? = nil) -> String {
+        let pct: String
+        if let percent {
+            pct = "\(Int(percent.rounded()))%"
+        } else if let placeholder {
+            pct = placeholder
+        } else {
+            pct = "—"
+        }
+        var title = "\(name): \(pct)"
+        if let resetsAt, percent != nil {
+            title += " · resets \(formatReset(resetsAt))"
+        }
+        return title
     }
 
     var statusSymbolColor: NSColor {
@@ -35,6 +71,7 @@ final class AppState {
     }
 
     private let client = GrokBillingClient()
+    private let botClient = CursorBotClient()
     private var refreshTask: Task<Void, Never>?
     private let refreshInterval: Duration = .seconds(60)
 
@@ -59,14 +96,125 @@ final class AppState {
     func refresh() async {
         isRefreshing = true
         defer { isRefreshing = false }
-        do {
-            usage = try await client.fetchUsage()
+
+        let previous = usage
+        async let grokUsage = try? client.fetchUsage()
+        async let botStatus = try? botClient.fetchStatus()
+        let fetchedGrok = await grokUsage
+        let fetchedBot = await botStatus
+        let grok = fetchedGrok ?? Self.preservedGrok(from: previous)
+        let bot = fetchedBot ?? Self.preservedBot(from: previous)
+        usage = Self.combine(grok: grok, bot: bot)
+
+        if grok == nil && bot == nil {
+            lastError = "Could not fetch Grok or Grok Bot usage."
+        } else if fetchedGrok == nil && grok == nil {
+            lastError = "Could not fetch Grok Build usage."
+        } else if fetchedBot == nil && bot == nil {
+            lastError = "Could not fetch Grok Bot usage."
+        } else {
             lastError = nil
-        } catch {
-            lastError = error.localizedDescription
-            // keep last good usage visible if we have one
         }
         StatusItemController.shared.updateAppearance()
+    }
+
+    private static func preservedGrok(from usage: GrokUsage?) -> GrokUsage? {
+        guard let usage, let pct = usage.grokPercent else { return nil }
+        return GrokUsage(
+            usedPercent: pct,
+            resetsAt: usage.grokResetsAt ?? usage.resetsAt,
+            email: usage.email,
+            loginMethod: usage.loginMethod,
+            teamID: usage.teamID,
+            fetchedAt: usage.fetchedAt,
+            grokPercent: pct,
+            grokResetsAt: usage.grokResetsAt ?? usage.resetsAt
+        )
+    }
+
+    private static func preservedBot(from usage: GrokUsage?) -> CursorBotStatus? {
+        guard let usage else { return nil }
+        if usage.needsSuperGrokLink {
+            return CursorBotStatus(
+                usagePercent: nil,
+                resetsAt: usage.botResetsAt,
+                periodStart: nil,
+                includedLimitZero: true,
+                hasNonZeroIncludedLimit: false,
+                hasAvailableUsage: false,
+                grokPlanLabel: usage.loginMethod,
+                cursorEmail: usage.email
+            )
+        }
+        guard let pct = usage.botPercent else { return nil }
+        return CursorBotStatus(
+            usagePercent: pct,
+            resetsAt: usage.botResetsAt,
+            periodStart: nil,
+            includedLimitZero: false,
+            hasNonZeroIncludedLimit: true,
+            hasAvailableUsage: true,
+            grokPlanLabel: usage.loginMethod,
+            cursorEmail: usage.email
+        )
+    }
+
+    private static func combine(
+        grok grokUsage: GrokUsage?,
+        bot botStatus: CursorBotStatus?
+    ) -> GrokUsage? {
+
+        if let botStatus, botStatus.hasBotAllowance, let pct = botStatus.usagePercent {
+            var u = grokUsage ?? GrokUsage(
+                usedPercent: pct,
+                resetsAt: botStatus.resetsAt,
+                email: botStatus.cursorEmail,
+                loginMethod: botStatus.grokPlanLabel ?? "Grok Bot",
+                teamID: nil,
+                fetchedAt: Date()
+            )
+            u.botPercent = pct
+            u.botResetsAt = botStatus.resetsAt
+            u.grokPercent = grokUsage?.usedPercent ?? grokUsage?.grokPercent
+            u.grokResetsAt = grokUsage?.grokResetsAt ?? grokUsage?.resetsAt
+            u.usedPercent = [u.botPercent, u.grokPercent].compactMap { $0 }.max() ?? pct
+            u.resetsAt = u.botResetsAt ?? u.grokResetsAt ?? u.resetsAt
+            u.needsSuperGrokLink = false
+            u.source = .grokBot
+            u.loginMethod = botStatus.grokPlanLabel ?? grokUsage?.loginMethod ?? "Grok Bot"
+            if let email = botStatus.cursorEmail, u.email == nil { u.email = email }
+            u.fetchedAt = Date()
+            return u
+        }
+
+        if let botStatus, botStatus.includedLimitZero || !botStatus.hasBotAllowance {
+            var u = grokUsage ?? GrokUsage(
+                usedPercent: grokUsage?.usedPercent ?? 0,
+                resetsAt: grokUsage?.resetsAt ?? botStatus.resetsAt,
+                email: botStatus.cursorEmail ?? grokUsage?.email,
+                loginMethod: "Link SuperGrok",
+                teamID: grokUsage?.teamID,
+                fetchedAt: Date()
+            )
+            u.grokPercent = grokUsage?.usedPercent ?? grokUsage?.grokPercent
+            u.grokResetsAt = grokUsage?.grokResetsAt ?? grokUsage?.resetsAt
+            u.botPercent = nil
+            u.botResetsAt = botStatus.resetsAt
+            u.needsSuperGrokLink = true
+            u.source = .needsLink
+            u.loginMethod = "Link SuperGrok"
+            if let email = botStatus.cursorEmail { u.email = email }
+            u.fetchedAt = Date()
+            return u
+        }
+
+        if var u = grokUsage {
+            u.grokPercent = u.usedPercent
+            u.grokResetsAt = u.resetsAt
+            u.source = .grokCredits
+            return u
+        }
+        return nil
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -76,6 +224,24 @@ final class AppState {
 
     func openGrokUsage() {
         if let url = URL(string: "https://grok.com/?_s=usage") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func openBotSpending() {
+        if let url = URL(string: "https://cursor.com/dashboard/spending") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func openLinkSuperGrok() {
+        if let url = URL(string: "https://cursor.com/promos/super-grok") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func openGrokBotPlan() {
+        if let url = URL(string: "grokbot://app/v1/settings?id=plan") {
             NSWorkspace.shared.open(url)
         }
     }

@@ -1,5 +1,11 @@
 import Foundation
 
+enum UsageSource: String, Sendable {
+    case grokBot
+    case grokCredits
+    case needsLink
+}
+
 struct GrokUsage: Equatable, Sendable {
     var usedPercent: Double
     var resetsAt: Date?
@@ -7,9 +13,21 @@ struct GrokUsage: Equatable, Sendable {
     var loginMethod: String
     var teamID: String?
     var fetchedAt: Date
+    var grokPercent: Double?
+    var grokResetsAt: Date?
+    var botPercent: Double?
+    var botResetsAt: Date?
+    var needsSuperGrokLink: Bool = false
+    var source: UsageSource = .grokCredits
+
+    /// Higher of the two pools — drives the menu-bar color.
+    var headlinePercent: Double {
+        [botPercent, grokPercent].compactMap { $0 }.max() ?? usedPercent
+    }
 
     var status: UsageStatus {
-        switch usedPercent {
+        if needsSuperGrokLink && grokPercent == nil { return .unknown }
+        switch headlinePercent {
         case ..<50: return .healthy
         case ..<80: return .warning
         case ..<95: return .danger
@@ -47,7 +65,7 @@ actor GrokBillingClient {
         request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "x-grpc-web")
         request.setValue("connect-es/2.1.1", forHTTPHeaderField: "x-user-agent")
-        request.setValue("SuperGrokBar/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("SuperGrokBar/1.1", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 20
 
         let (data, response): (Data, URLResponse)

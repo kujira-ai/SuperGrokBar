@@ -1,8 +1,8 @@
 class SupergrokBar < Formula
-  desc "macOS menu bar monitor for SuperGrok / Grok Build usage credits"
+  desc "macOS menu bar monitor for Grok Bot and Grok Build usage"
   homepage "https://github.com/kujira-ai/SuperGrokBar"
-  url "https://github.com/kujira-ai/SuperGrokBar/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "8c8b8b9a2de612b7984ebedb4d0e52398885fc027a462c9f5ac77c280e24fd16"
+  url "https://github.com/kujira-ai/SuperGrokBar/archive/refs/tags/v1.1.0.tar.gz"
+  sha256 "PLACEHOLDER_SHA256"
   license "MIT"
   head "https://github.com/kujira-ai/SuperGrokBar.git", branch: "main"
 
@@ -31,8 +31,8 @@ class SupergrokBar < Formula
 
   def caveats
     <<~EOS
-      Requires a Grok CLI session:
-        grok login
+      Requires a Grok CLI session (`grok login`) for Build credits.
+      Grok Bot weekly usage is read from the Grok Bot or Cursor.app session.
 
       Start the menu bar app (also sets Launch-at-Login agent):
         supergrok-bar
@@ -44,6 +44,6 @@ class SupergrokBar < Formula
 
   test do
     assert_predicate libexec/"SuperGrokBar", :exist?
-    assert_match "1.0.0", shell_output("#{bin}/supergrok-bar version")
+    assert_match "1.1.0", shell_output("#{bin}/supergrok-bar version")
   end
 end
