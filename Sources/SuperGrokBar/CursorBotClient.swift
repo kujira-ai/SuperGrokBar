@@ -45,7 +45,7 @@ actor CursorBotClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("https://cursor.com", forHTTPHeaderField: "Origin")
         request.setValue(cookie, forHTTPHeaderField: "Cookie")
-        request.setValue("SuperGrokBar/1.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("SuperGrokBar/1.1.1", forHTTPHeaderField: "User-Agent")
 
         let data: Data
         let response: URLResponse

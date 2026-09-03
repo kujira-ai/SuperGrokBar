@@ -8,7 +8,7 @@ BIN_DIR="${APP_DIR}/Contents/MacOS"
 RES_DIR="${APP_DIR}/Contents/Resources"
 LABEL="com.kujira.SuperGrokBar"
 PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
-VERSION="1.1.0"
+VERSION="1.1.1"
 
 # Resolve packaged binary (Homebrew libexec or sibling of this script after release install)
 resolve_exec() {
@@ -115,6 +115,10 @@ install_app() {
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>NSSupportsAutomaticTermination</key>
+  <false/>
+  <key>NSSupportsSuddenTermination</key>
+  <false/>
 </dict>
 </plist>
 PLIST
@@ -128,6 +132,10 @@ PLIST
 <dict>
   <key>Label</key>
   <string>${LABEL}</string>
+  <key>AssociatedBundleIdentifiers</key>
+  <array>
+    <string>${LABEL}</string>
+  </array>
   <key>ProgramArguments</key>
   <array>
     <string>${BIN_DIR}/${APP_NAME}</string>
@@ -135,7 +143,12 @@ PLIST
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <false/>
+  <dict>
+    <key>Crashed</key>
+    <true/>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
   <key>ProcessType</key>
   <string>Interactive</string>
   <key>ThrottleInterval</key>
@@ -148,6 +161,7 @@ PLIST
     || launchctl load -w "$PLIST" 2>/dev/null \
     || true
 
+  sleep 0.5
   if ! pgrep -x SuperGrokBar >/dev/null; then
     open "$APP_DIR" 2>/dev/null || "${BIN_DIR}/${APP_NAME}" &
   fi

@@ -56,7 +56,7 @@ enum ProtobufScanner {
                 guard i + 4 <= bytes.count else { return result }
                 let raw = Data(bytes[i..<(i + 4)])
                 i += 4
-                let value = raw.withUnsafeBytes { $0.load(as: Float.self) }
+                let value = raw.withUnsafeBytes { $0.loadUnaligned(as: Float.self) }
                 result.fixed32.append(.init(path: nextPath, value: value))
             default:
                 return result

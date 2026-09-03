@@ -31,7 +31,7 @@ final class StatusItemController: NSObject {
         statusItem = item
 
         if let button = item.button {
-            button.image = Self.menuBarImage()
+            button.image = Self.cachedMenuBarImage
             button.imagePosition = .imageLeading
             button.title = "…"
             button.toolTip = "Grok Bot and Grok Build usage"
@@ -112,7 +112,7 @@ final class StatusItemController: NSObject {
     func updateAppearance() {
         guard let button = statusItem?.button else { return }
         button.title = " \(state.titleText)"
-        button.image = Self.menuBarImage()
+        button.image = Self.cachedMenuBarImage
         button.toolTip = tooltipText()
         rebuildMenuLabels()
     }
@@ -123,14 +123,14 @@ final class StatusItemController: NSObject {
             if usage.needsSuperGrokLink {
                 parts.append("Grok Bot: SuperGrok not linked")
             } else if let bot = usage.botPercent {
-                var botPart = "Grok Bot \(Int(bot.rounded()))% used"
+                var botPart = "Grok Bot \(AppState.percentLabel(bot)) used"
                 if let resets = usage.botResetsAt {
                     botPart += " (resets \(AppState.formatReset(resets)))"
                 }
                 parts.append(botPart)
             }
             if let grok = usage.grokPercent {
-                var grokPart = "Grok Build \(Int(grok.rounded()))% used"
+                var grokPart = "Grok Build \(AppState.percentLabel(grok)) used"
                 if let resets = usage.grokResetsAt {
                     grokPart += " (resets \(AppState.formatReset(resets)))"
                 }
@@ -204,13 +204,15 @@ final class StatusItemController: NSObject {
         refreshItem.title = state.isRefreshing ? "Refreshing…" : "Refresh"
     }
 
-    private static func menuBarImage() -> NSImage {
-        // Prefer bundled template X icon (xAI-style, not Claude asterisk).
-        // Installed .app: Contents/Resources; `swift run`: Bundle.module.
+    /// Loaded once. Avoid `Bundle.module` — SPM's accessor fatalErrors if the
+    /// resource bundle is not next to the executable (installed .app layout).
+    private static let cachedMenuBarImage: NSImage = {
+        let resourceDir = Bundle.main.resourceURL
         let candidates: [URL?] = [
             Bundle.main.url(forResource: "icon_template", withExtension: "png"),
-            Bundle.main.resourceURL?.appendingPathComponent("icon_template.png"),
-            Bundle.module.url(forResource: "icon_template", withExtension: "png"),
+            resourceDir?.appendingPathComponent("icon_template.png"),
+            resourceDir?.appendingPathComponent("SuperGrokBar_SuperGrokBar.bundle/icon_template.png"),
+            resourceDir?.appendingPathComponent("SuperGrokBar_SuperGrokBar.bundle/Contents/Resources/icon_template.png"),
         ]
         for case let url? in candidates {
             if let img = NSImage(contentsOf: url) {
@@ -219,7 +221,6 @@ final class StatusItemController: NSObject {
                 return img
             }
         }
-        // Fallback: SF Symbol that is not the Claude mark
         let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
         if let img = NSImage(systemSymbolName: "xmark", accessibilityDescription: "SuperGrok")?
             .withSymbolConfiguration(config) {
@@ -227,7 +228,7 @@ final class StatusItemController: NSObject {
             return img
         }
         return NSImage(size: NSSize(width: 16, height: 16))
-    }
+    }()
 
     // MARK: - Actions
 

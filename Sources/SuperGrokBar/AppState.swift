@@ -26,25 +26,30 @@ final class AppState {
         if usage.needsSuperGrokLink {
             parts.append("link")
         } else if let bot = usage.botPercent {
-            parts.append("bot \(Int(bot.rounded()))%")
+            parts.append("bot \(percentLabel(bot))")
         } else if usage.source == .grokBot {
             parts.append("bot —")
         }
         if let grok = usage.grokPercent {
-            parts.append("build \(Int(grok.rounded()))%")
+            parts.append("build \(percentLabel(grok))")
         } else if usage.botPercent != nil || usage.needsSuperGrokLink {
             parts.append("build —")
         }
         if parts.isEmpty {
-            return "\(Int(usage.usedPercent.rounded()))%"
+            return percentLabel(usage.usedPercent)
         }
         return parts.joined(separator: " · ")
+    }
+
+    static func percentLabel(_ value: Double) -> String {
+        guard value.isFinite else { return "—" }
+        return "\(Int(value.rounded()))%"
     }
 
     static func formatPercentLine(name: String, percent: Double?, resetsAt: Date?, placeholder: String? = nil) -> String {
         let pct: String
         if let percent {
-            pct = "\(Int(percent.rounded()))%"
+            pct = percentLabel(percent)
         } else if let placeholder {
             pct = placeholder
         } else {
@@ -94,6 +99,7 @@ final class AppState {
     }
 
     func refresh() async {
+        if isRefreshing { return }
         isRefreshing = true
         defer { isRefreshing = false }
 

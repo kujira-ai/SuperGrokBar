@@ -48,8 +48,10 @@ enum CursorAppAuth {
             filename = "\(url)?immutable=1"
             flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
         } else {
-            filename = dbPath
-            flags = SQLITE_OPEN_READONLY
+            // Still URI-open read-only so we never create WAL sidecars next to Cursor's DB.
+            let url = URL(fileURLWithPath: dbPath).absoluteURL.absoluteString
+            filename = "\(url)?mode=ro"
+            flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
         }
         let open = sqlite3_open_v2(filename, &db, flags, nil)
         guard open == SQLITE_OK else {

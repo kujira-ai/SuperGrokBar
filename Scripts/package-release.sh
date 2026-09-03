@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${1:-1.1.0}"
+VERSION="${1:-1.1.1}"
 DIST="${ROOT}/dist"
 APP_NAME="SuperGrokBar"
 STAGE="${DIST}/stage"
@@ -55,6 +55,10 @@ cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>NSSupportsAutomaticTermination</key>
+  <false/>
+  <key>NSSupportsSuddenTermination</key>
+  <false/>
 </dict>
 </plist>
 PLIST

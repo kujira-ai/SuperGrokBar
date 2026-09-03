@@ -44,25 +44,33 @@ enum LaunchAtLogin {
                 "Label": label,
                 "ProgramArguments": [exe],
                 "RunAtLoad": true,
-                "KeepAlive": false,
+                // Restart after a crash, but not after Quit (exit 0).
+                "KeepAlive": [
+                    "Crashed": true,
+                    "SuccessfulExit": false,
+                ],
                 "ProcessType": "Interactive",
                 "ThrottleInterval": 10,
+                "AssociatedBundleIdentifiers": ["com.kujira.SuperGrokBar"],
             ]
             let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
             try data.write(to: plistURL, options: .atomic)
 
-            // Load (or reload) agent
+            // Do not bootout — that SIGTERMs this process. Load only if missing.
             let uid = getuid()
-            _ = run("/bin/launchctl", ["bootout", "gui/\(uid)/\(label)"])
-            _ = run("/bin/launchctl", ["bootstrap", "gui/\(uid)", plistURL.path])
+            let domain = "gui/\(uid)"
+            let service = "\(domain)/\(label)"
+            _ = run("/bin/launchctl", ["enable", service])
+            if run("/bin/launchctl", ["print", service]) != 0 {
+                _ = run("/bin/launchctl", ["bootstrap", domain, plistURL.path])
+            }
         } catch {
             NSLog("SuperGrokBar: failed to enable launch at login: \(error)")
         }
     }
 
     static func disable() {
-        let uid = getuid()
-        _ = run("/bin/launchctl", ["bootout", "gui/\(uid)/\(label)"])
+        // Remove the login item without unloading the running job (bootout kills us).
         try? FileManager.default.removeItem(at: plistURL)
     }
 

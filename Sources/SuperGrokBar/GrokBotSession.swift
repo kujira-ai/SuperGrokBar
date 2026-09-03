@@ -10,7 +10,13 @@ enum GrokBotSession {
             .appendingPathComponent("Library/Application Support/Grok Bot/sand-secrets.json")
     }
 
+    private static var cachedToken: (value: String, readAt: Date)?
+    private static let cacheTTL: TimeInterval = 10 * 60
+
     static func loadAccessToken() throws -> String {
+        if let cachedToken, Date().timeIntervalSince(cachedToken.readAt) < cacheTTL {
+            return cachedToken.value
+        }
         let url = secretsURL
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw GrokError.cursorNotSignedIn
@@ -35,7 +41,9 @@ enum GrokBotSession {
         else {
             throw GrokError.cursorNotSignedIn
         }
-        return try decryptElectronV10(blob)
+        let token = try decryptElectronV10(blob)
+        cachedToken = (token, Date())
+        return token
     }
 
     private static func keychainPassword() throws -> Data {

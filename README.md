@@ -67,7 +67,7 @@ brew uninstall supergrok-bar
 swift build
 swift run SuperGrokBar
 ./Scripts/install.sh
-./Scripts/package-release.sh 1.1.0
+./Scripts/package-release.sh 1.1.1
 ```
 
 ## Notes

@@ -65,7 +65,7 @@ actor GrokBillingClient {
         request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "x-grpc-web")
         request.setValue("connect-es/2.1.1", forHTTPHeaderField: "x-user-agent")
-        request.setValue("SuperGrokBar/1.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("SuperGrokBar/1.1.1", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 20
 
         let (data, response): (Data, URLResponse)
