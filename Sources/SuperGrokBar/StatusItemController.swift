@@ -10,6 +10,8 @@ final class StatusItemController: NSObject {
 
     private lazy var percentItem = NSMenuItem(title: "Grok Bot: —", action: nil, keyEquivalent: "")
     private lazy var grokCreditsItem = NSMenuItem(title: "Grok Build: —", action: nil, keyEquivalent: "")
+    private lazy var codexPrimaryItem = NSMenuItem(title: "Codex 5h: —", action: nil, keyEquivalent: "")
+    private lazy var codexWeeklyItem = NSMenuItem(title: "Codex weekly: —", action: nil, keyEquivalent: "")
     private lazy var planItem = NSMenuItem(title: "Plan: —", action: nil, keyEquivalent: "")
     private lazy var resetItem = NSMenuItem(title: "Resets: —", action: nil, keyEquivalent: "")
     private lazy var accountItem = NSMenuItem(title: "Account: —", action: nil, keyEquivalent: "")
@@ -26,18 +28,10 @@ final class StatusItemController: NSObject {
         keyEquivalent: "r"
     )
 
+    private static let autosaveName = "SuperGrokBar"
+    private var watchdog: Timer?
+
     func install() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem = item
-
-        if let button = item.button {
-            button.image = Self.cachedMenuBarImage
-            button.imagePosition = .imageLeading
-            button.title = "…"
-            button.toolTip = "Grok Bot and Grok Build usage"
-            button.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .medium)
-        }
-
         let menu = NSMenu()
         menu.autoenablesItems = false
 
@@ -52,6 +46,10 @@ final class StatusItemController: NSObject {
 
         menu.addItem(percentItem)
         menu.addItem(grokCreditsItem)
+        codexPrimaryItem.isEnabled = false
+        codexWeeklyItem.isEnabled = false
+        menu.addItem(codexPrimaryItem)
+        menu.addItem(codexWeeklyItem)
         menu.addItem(planItem)
         menu.addItem(resetItem)
         menu.addItem(accountItem)
@@ -94,27 +92,85 @@ final class StatusItemController: NSObject {
         quit.target = self
         menu.addItem(quit)
 
-        item.menu = menu
         self.menu = menu
-
+        pinStatusItem(recreate: true)
         state.start()
         updateAppearance()
 
-        // Rebuild dynamic labels when menu opens
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(menuWillOpen),
             name: NSMenu.didBeginTrackingNotification,
             object: menu
         )
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(self, selector: #selector(ensureOnBar), name: NSWorkspace.didWakeNotification, object: nil)
+        workspace.addObserver(self, selector: #selector(ensureOnBar), name: NSWorkspace.screensDidWakeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(ensureOnBar),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+        let timer = Timer(timeInterval: 10, target: self, selector: #selector(ensureOnBar), userInfo: nil, repeats: true)
+        RunLoop.main.add(timer, forMode: .common)
+        watchdog = timer
     }
 
     func updateAppearance() {
-        guard let button = statusItem?.button else { return }
-        button.title = " \(state.titleText)"
-        button.image = Self.cachedMenuBarImage
-        button.toolTip = tooltipText()
+        ensureOnBar()
+        applyButtonAppearance()
         rebuildMenuLabels()
+    }
+
+    /// Recreate only when the extra has actually left the menu bar.
+    /// `button` can stay non-nil after macOS drops the item; `window == nil` is the real signal.
+    @objc func ensureOnBar() {
+        UserDefaults.standard.set(true, forKey: "NSStatusItem Visible \(Self.autosaveName)")
+        let missing = statusItem == nil
+            || statusItem?.button == nil
+            || statusItem?.button?.window == nil
+            || statusItem?.isVisible == false
+        if missing {
+            pinStatusItem(recreate: true)
+        } else {
+            statusItem?.isVisible = true
+        }
+    }
+
+    /// Named, non-removable extra. macOS otherwise stashes unnamed items as
+    /// Control Center `Item-N` (often hidden) or drops them after sleep.
+    private func pinStatusItem(recreate: Bool) {
+        UserDefaults.standard.set(true, forKey: "NSStatusItem Visible \(Self.autosaveName)")
+        if recreate || statusItem == nil || statusItem?.button == nil {
+            if let old = statusItem {
+                NSStatusBar.system.removeStatusItem(old)
+            }
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            item.behavior = []
+            item.autosaveName = NSStatusItem.AutosaveName(Self.autosaveName)
+            item.menu = menu
+            statusItem = item
+            applyButtonAppearance()
+        }
+        statusItem?.isVisible = true
+    }
+
+    private func applyButtonAppearance() {
+        guard let button = statusItem?.button else { return }
+        let title = " \(state.titleText)"
+        if button.title != title {
+            button.title = title
+        }
+        if button.image !== Self.cachedMenuBarImage {
+            button.image = Self.cachedMenuBarImage
+            button.imagePosition = .imageLeading
+            button.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+        }
+        let tip = tooltipText()
+        if button.toolTip != tip {
+            button.toolTip = tip
+        }
     }
 
     private func tooltipText() -> String {
@@ -137,6 +193,9 @@ final class StatusItemController: NSObject {
                 parts.append(grokPart)
             } else {
                 parts.append("Grok Build unavailable")
+            }
+            if let c = state.codex {
+                parts.append("Codex 5h \(AppState.percentLabel(c.primary?.remainingPercent ?? .nan)) left, weekly \(AppState.percentLabel(c.secondary?.remainingPercent ?? .nan)) left")
             }
             return parts.joined(separator: " · ")
         }
@@ -188,6 +247,8 @@ final class StatusItemController: NSObject {
             updatedItem.title = "Updated: —"
         }
 
+        rebuildCodexLabels()
+
         if let err = state.lastError {
             errorItem.title = "Error: \(err)"
             errorItem.isHidden = false
@@ -202,6 +263,30 @@ final class StatusItemController: NSObject {
         launchItem.state = state.launchAtLoginEnabled ? .on : .off
         refreshItem.isEnabled = !state.isRefreshing
         refreshItem.title = state.isRefreshing ? "Refreshing…" : "Refresh"
+    }
+
+    /// Codex lines show remaining % (like the upstream /status), hidden when Codex isn't set up.
+    private func rebuildCodexLabels() {
+        func line(_ name: String, _ w: CodexWindow?) -> String {
+            guard let w else { return "\(name): —" }
+            var t = "\(name): \(AppState.percentLabel(w.remainingPercent)) left"
+            if let r = w.resetsAt { t += " · resets \(AppState.formatReset(r))" }
+            return t
+        }
+        if let codex = state.codex {
+            codexPrimaryItem.title = line("Codex 5h", codex.primary)
+            codexWeeklyItem.title = line("Codex weekly", codex.secondary)
+            codexPrimaryItem.isHidden = false
+            codexWeeklyItem.isHidden = false
+        } else if let err = state.codexError, !(err.contains("not logged in")) {
+            codexPrimaryItem.title = "Codex: unavailable"
+            codexPrimaryItem.toolTip = err
+            codexPrimaryItem.isHidden = false
+            codexWeeklyItem.isHidden = true
+        } else {
+            codexPrimaryItem.isHidden = true
+            codexWeeklyItem.isHidden = true
+        }
     }
 
     /// Loaded once. Avoid `Bundle.module` — SPM's accessor fatalErrors if the

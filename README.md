@@ -36,6 +36,7 @@ Download `SuperGrokBar-*-macos.zip` from [Releases](https://github.com/kujira-ai
 
 - macOS 14+
 - [Grok CLI](https://x.ai) logged in: `grok login` → `~/.grok/auth.json`
+- Optional: [Codex CLI](https://github.com/openai/codex) logged in with ChatGPT (`codex login` → `~/.codex/auth.json`) for ChatGPT/Codex quota
 - For source/Homebrew builds: Xcode / Swift toolchain
 
 ## Menu
@@ -43,6 +44,7 @@ Download `SuperGrokBar-*-macos.zip` from [Releases](https://github.com/kujira-ai
 | Item | Action |
 |------|--------|
 | Grok Bot / Grok Build / Plan / Account | Live Grok Bot weekly pool plus grok.com Build credits |
+| Codex 5h / Codex weekly | ChatGPT/Codex remaining % for the 5-hour and weekly windows (hidden if Codex isn't logged in) |
 | Refresh | Re-fetch usage now |
 | Open Grok Bot Plan… | Opens the Grok Bot plan screen |
 | Open Cursor Spending… | Opens cursor.com spending (Grok Bot bar) |
@@ -50,6 +52,52 @@ Download `SuperGrokBar-*-macos.zip` from [Releases](https://github.com/kujira-ai
 | Link SuperGrok… | Shown when this Cursor account has no Bot pool |
 | Launch at Login | Toggle auto-start |
 | Quit | Exit |
+
+## CLI: quota for agents
+
+```bash
+supergrok-bar quota          # human-readable
+supergrok-bar quota --json   # stable JSON
+# or call the binary directly (headless, never launches the UI):
+SuperGrokBar quota --json
+```
+
+Exit code is `0` if at least one provider returned data, `1` if all failed.
+Per-provider failures are reported in that provider's `error` field.
+
+JSON schema (`schema_version: 1`):
+
+```jsonc
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-13T19:00:45Z",       // ISO 8601 UTC
+  "providers": [                                 // always these 3, in this order
+    {
+      "id": "grok_build" | "grok_bot" | "codex",
+      "label": "Grok Build" | "Grok Bot" | "ChatGPT / Codex",
+      "ok": true,                                // false => see "error"
+      "error": null,                             // string when ok == false
+      "plan": "plus",                            // or null
+      "source": "api" | "session_log" | null,    // codex falls back to ~/.codex/sessions logs
+      "limit_reached": false,                    // codex only
+      "windows": [
+        {
+          "name": "credits" | "weekly" | "5h",   // grok_build: credits; grok_bot: weekly; codex: 5h + weekly
+          "used_percent": 23.0,
+          "remaining_percent": 77.0,
+          "resets_at": "2026-10-13T23:05:03Z",   // or null
+          "window_minutes": 300                  // or null
+        }
+      ]
+    }
+  ]
+}
+```
+
+Codex quota comes from `GET https://chatgpt.com/backend-api/wham/usage` (the endpoint Codex CLI uses
+for `/status`), authenticated with the access token and `chatgpt-account-id` from `~/.codex/auth.json`
+(respects `$CODEX_HOME`). The file is only read, never refreshed. If the request fails, the newest
+`rate_limits` event in `~/.codex/sessions/**/*.jsonl` is used (`"source": "session_log"`).
 
 ## Uninstall
 
@@ -67,7 +115,7 @@ brew uninstall supergrok-bar
 swift build
 swift run SuperGrokBar
 ./Scripts/install.sh
-./Scripts/package-release.sh 1.1.1
+./Scripts/package-release.sh 1.2.0
 ```
 
 ## Notes

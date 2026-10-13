@@ -6,11 +6,15 @@ import Observation
 @Observable
 final class AppState {
     var usage: GrokUsage?
+    /// ChatGPT/Codex plan quota (independent of Grok usage).
+    var codex: CodexUsage?
+    var codexError: String?
     var lastError: String?
     var isRefreshing = false
     var launchAtLoginEnabled: Bool = LaunchAtLogin.isEnabled
 
-    /// Compact menubar title, e.g. "bot 42% · build 18%" or "link"
+    /// Compact menubar title, e.g. "42% · 18%" (bot · build) or "link".
+    /// Long labels get dropped by macOS when the menu bar is full.
     var titleText: String {
         if let usage {
             return Self.formatBarTitle(usage)
@@ -26,14 +30,12 @@ final class AppState {
         if usage.needsSuperGrokLink {
             parts.append("link")
         } else if let bot = usage.botPercent {
-            parts.append("bot \(percentLabel(bot))")
-        } else if usage.source == .grokBot {
-            parts.append("bot —")
+            parts.append(percentLabel(bot))
         }
         if let grok = usage.grokPercent {
-            parts.append("build \(percentLabel(grok))")
+            parts.append(percentLabel(grok))
         } else if usage.botPercent != nil || usage.needsSuperGrokLink {
-            parts.append("build —")
+            parts.append("—")
         }
         if parts.isEmpty {
             return percentLabel(usage.usedPercent)
@@ -77,6 +79,7 @@ final class AppState {
 
     private let client = GrokBillingClient()
     private let botClient = CursorBotClient()
+    private let codexClient = CodexUsageClient()
     private var refreshTask: Task<Void, Never>?
     private let refreshInterval: Duration = .seconds(60)
 
@@ -108,6 +111,13 @@ final class AppState {
         async let botStatus = try? botClient.fetchStatus()
         let fetchedGrok = await grokUsage
         let fetchedBot = await botStatus
+        do {
+            codex = try await codexClient.fetchUsage()
+            codexError = nil
+        } catch {
+            codexError = error.localizedDescription
+            if case CodexError.notLoggedIn = error { codex = nil }
+        }
         let grok = fetchedGrok ?? Self.preservedGrok(from: previous)
         let bot = fetchedBot ?? Self.preservedBot(from: previous)
         usage = Self.combine(grok: grok, bot: bot)

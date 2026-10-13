@@ -1,5 +1,10 @@
 import AppKit
 
+// Headless CLI: `SuperGrokBar quota [--json]` prints all quotas and exits (no UI).
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "quota" {
+    exit(QuotaCLI.run(Array(CommandLine.arguments.dropFirst(2))))
+}
+
 // Agent-style menu bar app: no Dock icon, no main window.
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
