@@ -78,7 +78,7 @@ actor CodexUsageClient {
             request.setValue(account, forHTTPHeaderField: "chatgpt-account-id")
         }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("SuperGrokBar/1.2.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("SuperGrokBar/1.2.1", forHTTPHeaderField: "User-Agent")
 
         let (body, response): (Data, URLResponse)
         do {

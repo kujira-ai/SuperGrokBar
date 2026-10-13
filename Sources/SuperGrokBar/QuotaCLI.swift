@@ -1,6 +1,10 @@
 import Foundation
 
 /// Headless `SuperGrokBar quota [--json]`: query every provider without launching the UI.
+private final class ResultBox: @unchecked Sendable {
+    var value: (grok: Result<GrokUsage, Error>, bot: Result<CursorBotStatus, Error>, codex: Result<CodexUsage, Error>)?
+}
+
 enum QuotaCLI {
     static let schemaVersion = 1
 
@@ -11,15 +15,16 @@ enum QuotaCLI {
             return 0
         }
         let sem = DispatchSemaphore(value: 0)
-        var result: (grok: Result<GrokUsage, Error>, bot: Result<CursorBotStatus, Error>, codex: Result<CodexUsage, Error>)!
+        let box = ResultBox()
         Task.detached {
             async let g = capture { try await GrokBillingClient().fetchUsage() }
             async let b = capture { try await CursorBotClient().fetchStatus() }
             async let c = capture { try await CodexUsageClient().fetchUsage() }
-            result = (await g, await b, await c)
+            box.value = (await g, await b, await c)
             sem.signal()
         }
         sem.wait()
+        let result = box.value!
 
         let providers: [[String: Any]] = [grokEntry(result.grok), botEntry(result.bot), codexEntry(result.codex)]
         let okCount = providers.filter { $0["ok"] as? Bool == true }.count
