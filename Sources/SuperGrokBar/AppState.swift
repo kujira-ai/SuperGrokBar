@@ -13,16 +13,32 @@ final class AppState {
     var isRefreshing = false
     var launchAtLoginEnabled: Bool = LaunchAtLogin.isEnabled
 
-    /// Compact menubar title, e.g. "42% · 18%" (bot · build) or "link".
-    /// Long labels get dropped by macOS when the menu bar is full.
+    /// Compact menubar title, e.g. "42% · 18% · C 12%/34%" (bot · build · Codex 5h/weekly, all used %)
+    /// or "link". Long labels get dropped by macOS when the menu bar is full.
     var titleText: String {
+        let grok: String
         if let usage {
-            return Self.formatBarTitle(usage)
+            grok = Self.formatBarTitle(usage)
+        } else if lastError != nil {
+            grok = "!"
+        } else {
+            grok = "…"
         }
-        if lastError != nil {
-            return "!"
+        guard let codexPart = Self.formatCodexBarSegment(codex, error: codexError) else { return grok }
+        return "\(grok) · \(codexPart)"
+    }
+
+    /// Codex segment for the bar title: "C 12%/34%" (5h/weekly used, same as the Grok segments),
+    /// "C!" on error, nil when Codex isn't set up (not logged in / API-key mode).
+    static func formatCodexBarSegment(_ codex: CodexUsage?, error: String?) -> String? {
+        if let codex, codex.primary != nil || codex.secondary != nil {
+            let p = codex.primary.map { percentLabel($0.usedPercent) } ?? "—"
+            let s = codex.secondary.map { percentLabel($0.usedPercent) } ?? "—"
+            return "C \(p)/\(s)"
         }
-        return "…"
+        guard let error else { return nil }
+        if error.contains("not logged in") || error.contains("API key") { return nil }
+        return "C!"
     }
 
     static func formatBarTitle(_ usage: GrokUsage) -> String {

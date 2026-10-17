@@ -196,6 +196,8 @@ final class StatusItemController: NSObject {
             }
             if let c = state.codex {
                 parts.append("Codex 5h \(AppState.percentLabel(c.primary?.remainingPercent ?? .nan)) left, weekly \(AppState.percentLabel(c.secondary?.remainingPercent ?? .nan)) left")
+            } else if AppState.formatCodexBarSegment(nil, error: state.codexError) != nil {
+                parts.append("Codex unavailable")
             }
             return parts.joined(separator: " · ")
         }
