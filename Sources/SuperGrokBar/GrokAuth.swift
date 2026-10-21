@@ -13,10 +13,23 @@ struct GrokCredentials: Equatable, Sendable {
     var teamID: String?
     var expiresAt: Date?
     var sourcePath: String
+    var oidcIssuer: String? = nil
+    var oidcClientID: String? = nil
 
     var isExpired: Bool {
         guard let expiresAt else { return false }
         return Date() >= expiresAt
+    }
+
+    /// Expired, or expiring within `leeway` seconds.
+    func needsRefresh(leeway: TimeInterval = GrokTokenRefresher.leeway) -> Bool {
+        guard let expiresAt else { return false }
+        return Date().addingTimeInterval(leeway) >= expiresAt
+    }
+
+    var canRefresh: Bool {
+        guard let refreshToken, !refreshToken.isEmpty else { return false }
+        return (oidcClientID ?? GrokAuthStore.clientID(fromScope: scope)) != nil
     }
 
     /// Friendly plan label: SuperGrok for OIDC, else raw mode / session.
@@ -36,7 +49,7 @@ struct GrokCredentials: Equatable, Sendable {
 }
 
 enum GrokAuthStore {
-    private static let oidcPrefix = "https://auth.x.ai::"
+    static let oidcPrefix = "https://auth.x.ai::"
     private static let legacyScope = "https://accounts.x.ai/sign-in"
 
     static var grokHome: URL {
@@ -86,11 +99,41 @@ enum GrokAuthStore {
         throw GrokError.notLoggedIn(path.path)
     }
 
+    /// `https://auth.x.ai::<client_id>` → client id.
+    static func clientID(fromScope scope: String) -> String? {
+        guard let range = scope.range(of: "::") else { return nil }
+        let id = String(scope[range.upperBound...])
+        return id.isEmpty ? nil : id
+    }
+
+    static func parseDate(_ raw: String) -> Date? {
+        if let d = ISO8601DateFormatter.grok.date(from: raw) ?? ISO8601DateFormatter.grokFractional.date(from: raw) {
+            return d
+        }
+        // Grok writes microseconds (`…:29.263832Z`); trim to millis for Foundation.
+        if let dot = raw.firstIndex(of: "."), let z = raw.lastIndex(where: { $0 == "Z" || $0 == "+" || $0 == "-" }), z > dot {
+            let frac = raw[raw.index(after: dot)..<z].prefix(3)
+            let trimmed = String(raw[..<dot]) + "." + frac + String(raw[z...])
+            return ISO8601DateFormatter.grokFractional.date(from: trimmed)
+        }
+        return nil
+    }
+
+    /// Same shape Grok writes: UTC, 6 fractional digits, `Z`.
+    static func formatDate(_ date: Date) -> String {
+        let secs = floor(date.timeIntervalSince1970)
+        let micros = Int(((date.timeIntervalSince1970 - secs) * 1_000_000).rounded()) % 1_000_000
+        let base = ISO8601DateFormatter.grokUTC.string(from: Date(timeIntervalSince1970: secs))
+        // base ends with "Z"
+        return String(base.dropLast()) + String(format: ".%06dZ", micros)
+    }
+
     private static func parseEntry(scope: String, entry: [String: Any], sourcePath: String) -> GrokCredentials {
         var expires: Date?
         if let raw = entry["expires_at"] as? String {
-            expires = ISO8601DateFormatter.grok.date(from: raw)
-                ?? ISO8601DateFormatter.grokFractional.date(from: raw)
+            expires = parseDate(raw)
+        } else if let n = entry["expires_at"] as? Double {
+            expires = Date(timeIntervalSince1970: n > 10_000_000_000 ? n / 1000 : n)
         }
         return GrokCredentials(
             accessToken: entry["key"] as? String ?? "",
@@ -103,19 +146,28 @@ enum GrokAuthStore {
             lastName: entry["last_name"] as? String,
             teamID: entry["team_id"] as? String,
             expiresAt: expires,
-            sourcePath: sourcePath
+            sourcePath: sourcePath,
+            oidcIssuer: entry["oidc_issuer"] as? String,
+            oidcClientID: entry["oidc_client_id"] as? String
         )
     }
 }
 
 private extension ISO8601DateFormatter {
-    static let grok: ISO8601DateFormatter = {
+    nonisolated(unsafe) static let grokUTC: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
+
+    nonisolated(unsafe) static let grok: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f
     }()
 
-    static let grokFractional: ISO8601DateFormatter = {
+    nonisolated(unsafe) static let grokFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f

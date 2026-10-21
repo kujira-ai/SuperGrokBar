@@ -99,6 +99,16 @@ for `/status`), authenticated with the access token and `chatgpt-account-id` fro
 (respects `$CODEX_HOME`). The file is only read, never refreshed. If the request fails, the newest
 `rate_limits` event in `~/.codex/sessions/**/*.jsonl` is used (`"source": "session_log"`).
 
+### Grok Build login auto-refresh
+
+The `~/.grok/auth.json` access token lasts ~6 hours. When it is expired or within 2 minutes of expiry
+(and on a 401), SuperGrok Bar and `quota` silently refresh it the same way the `grok` CLI does:
+discover `token_endpoint` from `{oidc_issuer}/.well-known/openid-configuration` (`https://auth.x.ai/oauth2/token`),
+then `POST` form `grant_type=refresh_token&refresh_token=…&client_id=<oidc_client_id>` (public client, no secret).
+The new `key`, rotated `refresh_token`, and `expires_at` are written back into the same entry, other fields are
+kept, and the file stays mode `0600`. If refresh is rejected, run `grok login` again.
+`supergrok-bar quota --refresh-grok` forces a refresh.
+
 ## Uninstall
 
 ```bash
@@ -115,13 +125,15 @@ brew uninstall supergrok-bar
 swift build
 swift run SuperGrokBar
 ./Scripts/install.sh
-./Scripts/package-release.sh 1.2.2
+./Scripts/package-release.sh 1.2.3
 ```
 
 ## Notes
 
 - Polls about every 60 seconds.
-- Menu bar shows both pools, e.g. `bot 42% · build 18%`. Network to `grok.com` (Build credits) and `cursor.com` (`/api/dashboard/get-sand-usage-status` for Grok Bot). Grok Bot usage is metered on Cursor, not grok.com. Link SuperGrok on the Grok Bot plan screen if the bar says "link".
+- Menu bar stays tiny: the icon plus the single most-constrained quota (highest used %) across Grok Bot,
+  Grok Build, and Codex 5h/weekly, e.g. `42%` (Grok Bot), `64%ᴮ` (Grok Build), `78%ᶜ` (Codex). Unavailable
+  sources are skipped. Hover for the full breakdown; the dropdown lists every pool. Network to `grok.com` (Build credits) and `cursor.com` (`/api/dashboard/get-sand-usage-status` for Grok Bot). Grok Bot usage is metered on Cursor, not grok.com. Link SuperGrok on the Grok Bot plan screen if the bar says "link".
 - Independent of [onWatch](https://github.com/onllm-dev/onwatch).
 
 ## Logo

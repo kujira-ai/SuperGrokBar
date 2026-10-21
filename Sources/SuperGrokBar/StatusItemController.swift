@@ -158,19 +158,36 @@ final class StatusItemController: NSObject {
 
     private func applyButtonAppearance() {
         guard let button = statusItem?.button else { return }
-        let title = " \(state.titleText)"
-        if button.title != title {
-            button.title = title
+        let title = Self.attributedTitle(state.barTitle)
+        if button.attributedTitle != title {
+            button.attributedTitle = title
         }
         if button.image !== Self.cachedMenuBarImage {
             button.image = Self.cachedMenuBarImage
             button.imagePosition = .imageLeading
-            button.font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         }
         let tip = tooltipText()
         if button.toolTip != tip {
             button.toolTip = tip
         }
+    }
+
+    /// Number in medium monospaced digits plus an optional tiny source letter (B / C).
+    /// Empty value → icon only.
+    static func attributedTitle(_ t: AppState.BarTitle) -> NSAttributedString {
+        let out = NSMutableAttributedString()
+        guard !t.value.isEmpty else { return out }
+        let size = NSFont.systemFontSize - 1
+        out.append(NSAttributedString(string: "\u{2009}" + t.value, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .medium),
+        ]))
+        if !t.tag.isEmpty {
+            out.append(NSAttributedString(string: t.tag, attributes: [
+                .font: NSFont.systemFont(ofSize: 8, weight: .semibold),
+                .baselineOffset: 0,
+            ]))
+        }
+        return out
     }
 
     private func tooltipText() -> String {
@@ -195,11 +212,16 @@ final class StatusItemController: NSObject {
                 parts.append("Grok Build unavailable")
             }
             if let c = state.codex {
-                parts.append("Codex 5h \(AppState.percentLabel(c.primary?.remainingPercent ?? .nan)) left, weekly \(AppState.percentLabel(c.secondary?.remainingPercent ?? .nan)) left")
-            } else if AppState.formatCodexBarSegment(nil, error: state.codexError) != nil {
+                parts.append("Codex 5h \(AppState.percentLabel(c.primary?.usedPercent ?? .nan)) / weekly \(AppState.percentLabel(c.secondary?.usedPercent ?? .nan)) used")
+            } else if AppState.codexHasError(nil, error: state.codexError) {
                 parts.append("Codex unavailable")
             }
-            return parts.joined(separator: " · ")
+            let t = state.barTitle
+            if !t.value.isEmpty, t.value.hasSuffix("%") {
+                let name = ["B": "Grok Build", "C": "Codex"][t.tag] ?? "Grok Bot"
+                parts.append("Bar shows \(name) (most used)")
+            }
+            return parts.joined(separator: "\n")
         }
         if let err = state.lastError {
             return "SuperGrok Bar: \(err)"

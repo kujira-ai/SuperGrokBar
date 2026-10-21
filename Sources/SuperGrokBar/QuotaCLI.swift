@@ -11,13 +11,15 @@ enum QuotaCLI {
     static func run(_ args: [String]) -> Int32 {
         let json = args.contains("--json")
         if args.contains("--help") || args.contains("-h") {
-            print("Usage: SuperGrokBar quota [--json]")
+            print("Usage: SuperGrokBar quota [--json] [--refresh-grok]")
+            print("  --refresh-grok  force a Grok Build OIDC token refresh before fetching")
             return 0
         }
+        let forceGrokRefresh = args.contains("--refresh-grok")
         let sem = DispatchSemaphore(value: 0)
         let box = ResultBox()
         Task.detached {
-            async let g = capture { try await GrokBillingClient().fetchUsage() }
+            async let g = capture { try await GrokBillingClient().fetchUsage(forceRefresh: forceGrokRefresh) }
             async let b = capture { try await CursorBotClient().fetchStatus() }
             async let c = capture { try await CodexUsageClient().fetchUsage() }
             box.value = (await g, await b, await c)

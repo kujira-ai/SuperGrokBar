@@ -13,50 +13,63 @@ final class AppState {
     var isRefreshing = false
     var launchAtLoginEnabled: Bool = LaunchAtLogin.isEnabled
 
-    /// Compact menubar title, e.g. "42% · 18% · C 12%/34%" (bot · build · Codex 5h/weekly, all used %)
-    /// or "link". Long labels get dropped by macOS when the menu bar is full.
+    /// Which quota drives the compact menu-bar title.
+    enum BarSource: String, Sendable {
+        case bot = "", build = "B", codex = "C"
+    }
+
+    struct BarTitle: Equatable, Sendable {
+        /// Short number like "42%", or a tiny status ("!", "link"); empty = icon only.
+        var value: String
+        /// Tiny tag after the number: "B" (Grok Build), "C" (Codex), "" (Grok Bot).
+        var tag: String
+    }
+
+    /// Ultra-compact menu-bar title: only the most-constrained quota (highest used %)
+    /// across Grok Bot, Grok Build, and Codex (5h / weekly), e.g. "42%", "64%" + B, "78%" + C.
+    /// Unavailable sources are skipped; the full breakdown lives in the dropdown and tooltip.
+    var barTitle: BarTitle {
+        Self.formatBarTitle(usage: usage, codex: codex, hasError: lastError != nil)
+    }
+
+    /// Plain-text form of `barTitle` (e.g. "42%", "64%B", "78%C").
     var titleText: String {
-        let grok: String
+        let t = barTitle
+        return t.value + t.tag
+    }
+
+    static func formatBarTitle(usage: GrokUsage?, codex: CodexUsage?, hasError: Bool) -> BarTitle {
+        var candidates: [(BarSource, Double)] = []
         if let usage {
-            grok = Self.formatBarTitle(usage)
-        } else if lastError != nil {
-            grok = "!"
-        } else {
-            grok = "…"
+            if !usage.needsSuperGrokLink, let bot = usage.botPercent, bot.isFinite { candidates.append((.bot, bot)) }
+            if let build = usage.grokPercent, build.isFinite { candidates.append((.build, build)) }
+            if candidates.isEmpty, !usage.needsSuperGrokLink, usage.usedPercent.isFinite {
+                candidates.append((.build, usage.usedPercent))
+            }
         }
-        guard let codexPart = Self.formatCodexBarSegment(codex, error: codexError) else { return grok }
-        return "\(grok) · \(codexPart)"
+        if let codex {
+            let worst = [codex.primary?.usedPercent, codex.secondary?.usedPercent]
+                .compactMap { $0 }.filter(\.isFinite).max()
+            if let worst { candidates.append((.codex, worst)) }
+        }
+        // Highest used % wins; ties keep the earlier source (Bot, then Build, then Codex).
+        var best: (BarSource, Double)?
+        for c in candidates where best == nil || c.1.rounded() > best!.1.rounded() {
+            best = c
+        }
+        if let best {
+            return BarTitle(value: percentLabel(best.1), tag: best.0.rawValue)
+        }
+        if usage?.needsSuperGrokLink == true { return BarTitle(value: "link", tag: "") }
+        if hasError { return BarTitle(value: "!", tag: "") }
+        return BarTitle(value: "", tag: "")
     }
 
-    /// Codex segment for the bar title: "C 12%/34%" (5h/weekly used, same as the Grok segments),
-    /// "C!" on error, nil when Codex isn't set up (not logged in / API-key mode).
-    static func formatCodexBarSegment(_ codex: CodexUsage?, error: String?) -> String? {
-        if let codex, codex.primary != nil || codex.secondary != nil {
-            let p = codex.primary.map { percentLabel($0.usedPercent) } ?? "—"
-            let s = codex.secondary.map { percentLabel($0.usedPercent) } ?? "—"
-            return "C \(p)/\(s)"
-        }
-        guard let error else { return nil }
-        if error.contains("not logged in") || error.contains("API key") { return nil }
-        return "C!"
-    }
-
-    static func formatBarTitle(_ usage: GrokUsage) -> String {
-        var parts: [String] = []
-        if usage.needsSuperGrokLink {
-            parts.append("link")
-        } else if let bot = usage.botPercent {
-            parts.append(percentLabel(bot))
-        }
-        if let grok = usage.grokPercent {
-            parts.append(percentLabel(grok))
-        } else if usage.botPercent != nil || usage.needsSuperGrokLink {
-            parts.append("—")
-        }
-        if parts.isEmpty {
-            return percentLabel(usage.usedPercent)
-        }
-        return parts.joined(separator: " · ")
+    /// Codex unavailable for a reason worth surfacing (not just "not set up").
+    static func codexHasError(_ codex: CodexUsage?, error: String?) -> Bool {
+        if let codex, codex.primary != nil || codex.secondary != nil { return false }
+        guard let error else { return false }
+        return !(error.contains("not logged in") || error.contains("API key"))
     }
 
     static func percentLabel(_ value: Double) -> String {
