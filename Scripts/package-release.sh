@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${1:-1.2.3}"
+VERSION="${1:-1.2.4}"
 DIST="${ROOT}/dist"
 APP_NAME="SuperGrokBar"
 STAGE="${DIST}/stage"

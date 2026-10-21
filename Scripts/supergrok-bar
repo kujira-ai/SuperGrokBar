@@ -8,7 +8,7 @@ BIN_DIR="${APP_DIR}/Contents/MacOS"
 RES_DIR="${APP_DIR}/Contents/Resources"
 LABEL="com.kujira.SuperGrokBar"
 PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
-VERSION="1.2.3"
+VERSION="1.2.4"
 
 # Resolve packaged binary (Homebrew libexec or sibling of this script after release install)
 resolve_exec() {

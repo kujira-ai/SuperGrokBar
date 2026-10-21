@@ -13,56 +13,39 @@ final class AppState {
     var isRefreshing = false
     var launchAtLoginEnabled: Bool = LaunchAtLogin.isEnabled
 
-    /// Which quota drives the compact menu-bar title.
-    enum BarSource: String, Sendable {
-        case bot = "", build = "B", codex = "C"
-    }
-
-    struct BarTitle: Equatable, Sendable {
-        /// Short number like "42%", or a tiny status ("!", "link"); empty = icon only.
-        var value: String
-        /// Tiny tag after the number: "B" (Grok Build), "C" (Codex), "" (Grok Bot).
-        var tag: String
-    }
-
-    /// Ultra-compact menu-bar title: only the most-constrained quota (highest used %)
-    /// across Grok Bot, Grok Build, and Codex (5h / weekly), e.g. "42%", "64%" + B, "78%" + C.
-    /// Unavailable sources are skipped; the full breakdown lives in the dropdown and tooltip.
-    var barTitle: BarTitle {
+    /// Menu-bar title: every available quota as a labeled used-% integer, no icon, no "%":
+    /// `Bu77 Bo70 Co0 Cw48` = Grok Build, Grok Bot, Codex 5h window, Codex weekly.
+    /// A segment is omitted when that provider has no data; the full breakdown lives in
+    /// the dropdown and tooltip.
+    var barTitle: String {
         Self.formatBarTitle(usage: usage, codex: codex, hasError: lastError != nil)
     }
 
-    /// Plain-text form of `barTitle` (e.g. "42%", "64%B", "78%C").
-    var titleText: String {
-        let t = barTitle
-        return t.value + t.tag
-    }
+    /// Plain-text form of `barTitle`.
+    var titleText: String { barTitle }
 
-    static func formatBarTitle(usage: GrokUsage?, codex: CodexUsage?, hasError: Bool) -> BarTitle {
-        var candidates: [(BarSource, Double)] = []
-        if let usage {
-            if !usage.needsSuperGrokLink, let bot = usage.botPercent, bot.isFinite { candidates.append((.bot, bot)) }
-            if let build = usage.grokPercent, build.isFinite { candidates.append((.build, build)) }
-            if candidates.isEmpty, !usage.needsSuperGrokLink, usage.usedPercent.isFinite {
-                candidates.append((.build, usage.usedPercent))
-            }
+    static let barLegend = "Bu = Grok Build · Bo = Grok Bot · Co = Codex 5h · Cw = Codex weekly (used %)"
+
+    static func formatBarTitle(usage: GrokUsage?, codex: CodexUsage?, hasError: Bool) -> String {
+        func seg(_ label: String, _ v: Double?) -> String? {
+            guard let v, v.isFinite else { return nil }
+            return "\(label)\(Int(v.rounded()))"
         }
-        if let codex {
-            let worst = [codex.primary?.usedPercent, codex.secondary?.usedPercent]
-                .compactMap { $0 }.filter(\.isFinite).max()
-            if let worst { candidates.append((.codex, worst)) }
+        var build: Double? = usage?.grokPercent
+        let bot: Double? = (usage?.needsSuperGrokLink ?? true) ? nil : usage?.botPercent
+        if build == nil, bot == nil, let usage, !usage.needsSuperGrokLink, usage.usedPercent.isFinite {
+            build = usage.usedPercent
         }
-        // Highest used % wins; ties keep the earlier source (Bot, then Build, then Codex).
-        var best: (BarSource, Double)?
-        for c in candidates where best == nil || c.1.rounded() > best!.1.rounded() {
-            best = c
-        }
-        if let best {
-            return BarTitle(value: percentLabel(best.1), tag: best.0.rawValue)
-        }
-        if usage?.needsSuperGrokLink == true { return BarTitle(value: "link", tag: "") }
-        if hasError { return BarTitle(value: "!", tag: "") }
-        return BarTitle(value: "", tag: "")
+        let parts = [
+            seg("Bu", build),
+            seg("Bo", bot),
+            seg("Co", codex?.primary?.usedPercent),
+            seg("Cw", codex?.secondary?.usedPercent),
+        ].compactMap { $0 }
+        if !parts.isEmpty { return parts.joined(separator: " ") }
+        if usage?.needsSuperGrokLink == true { return "link" }
+        if hasError { return "!" }
+        return "SG"
     }
 
     /// Codex unavailable for a reason worth surfacing (not just "not set up").

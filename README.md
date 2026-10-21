@@ -125,20 +125,20 @@ brew uninstall supergrok-bar
 swift build
 swift run SuperGrokBar
 ./Scripts/install.sh
-./Scripts/package-release.sh 1.2.3
+./Scripts/package-release.sh 1.2.4
 ```
 
 ## Notes
 
 - Polls about every 60 seconds.
-- Menu bar stays tiny: the icon plus the single most-constrained quota (highest used %) across Grok Bot,
-  Grok Build, and Codex 5h/weekly, e.g. `42%` (Grok Bot), `64%ᴮ` (Grok Build), `78%ᶜ` (Codex). Unavailable
-  sources are skipped. Hover for the full breakdown; the dropdown lists every pool. Network to `grok.com` (Build credits) and `cursor.com` (`/api/dashboard/get-sand-usage-status` for Grok Bot). Grok Bot usage is metered on Cursor, not grok.com. Link SuperGrok on the Grok Bot plan screen if the bar says "link".
+- Menu bar is text only (no icon, no `%`): each quota's used % with a short label, e.g.
+  `Bu77 Bo70 Co0 Cw48` = Grok **Bu**ild, Grok **Bo**t, **Co**dex 5h window, **C**odex **w**eekly. A segment
+  is omitted when that provider has no data. Hover for the full breakdown; the dropdown lists every pool. Network to `grok.com` (Build credits) and `cursor.com` (`/api/dashboard/get-sand-usage-status` for Grok Bot). Grok Bot usage is metered on Cursor, not grok.com. Link SuperGrok on the Grok Bot plan screen if the bar says "link".
 - Independent of [onWatch](https://github.com/onllm-dev/onwatch).
 
 ## Logo
 
-Menu bar icon uses the public Grok/xAI mark (see `Sources/SuperGrokBar/Resources/ATTRIBUTION.txt`).  
+App icon uses the public Grok/xAI mark (see `Sources/SuperGrokBar/Resources/ATTRIBUTION.txt`).  
 Official brand materials: [xAI Brand Guidelines](https://x.ai/legal/brand-guidelines).
 
 ## License

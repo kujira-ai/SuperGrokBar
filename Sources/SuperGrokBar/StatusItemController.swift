@@ -162,9 +162,12 @@ final class StatusItemController: NSObject {
         if button.attributedTitle != title {
             button.attributedTitle = title
         }
-        if button.image !== Self.cachedMenuBarImage {
-            button.image = Self.cachedMenuBarImage
-            button.imagePosition = .imageLeading
+        // Text only: no xAI / template image.
+        if button.image != nil {
+            button.image = nil
+        }
+        if button.imagePosition != .noImage {
+            button.imagePosition = .noImage
         }
         let tip = tooltipText()
         if button.toolTip != tip {
@@ -172,22 +175,11 @@ final class StatusItemController: NSObject {
         }
     }
 
-    /// Number in medium monospaced digits plus an optional tiny source letter (B / C).
-    /// Empty value → icon only.
-    static func attributedTitle(_ t: AppState.BarTitle) -> NSAttributedString {
-        let out = NSMutableAttributedString()
-        guard !t.value.isEmpty else { return out }
-        let size = NSFont.systemFontSize - 1
-        out.append(NSAttributedString(string: "\u{2009}" + t.value, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .medium),
-        ]))
-        if !t.tag.isEmpty {
-            out.append(NSAttributedString(string: t.tag, attributes: [
-                .font: NSFont.systemFont(ofSize: 8, weight: .semibold),
-                .baselineOffset: 0,
-            ]))
-        }
-        return out
+    /// Plain labeled numbers (e.g. "Bu77 Bo70 Co0 Cw48") in monospaced digits.
+    static func attributedTitle(_ text: String) -> NSAttributedString {
+        NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .medium),
+        ])
     }
 
     private func tooltipText() -> String {
@@ -216,11 +208,7 @@ final class StatusItemController: NSObject {
             } else if AppState.codexHasError(nil, error: state.codexError) {
                 parts.append("Codex unavailable")
             }
-            let t = state.barTitle
-            if !t.value.isEmpty, t.value.hasSuffix("%") {
-                let name = ["B": "Grok Build", "C": "Codex"][t.tag] ?? "Grok Bot"
-                parts.append("Bar shows \(name) (most used)")
-            }
+            parts.append("Bar: " + AppState.barLegend)
             return parts.joined(separator: "\n")
         }
         if let err = state.lastError {
@@ -312,32 +300,6 @@ final class StatusItemController: NSObject {
             codexWeeklyItem.isHidden = true
         }
     }
-
-    /// Loaded once. Avoid `Bundle.module` — SPM's accessor fatalErrors if the
-    /// resource bundle is not next to the executable (installed .app layout).
-    private static let cachedMenuBarImage: NSImage = {
-        let resourceDir = Bundle.main.resourceURL
-        let candidates: [URL?] = [
-            Bundle.main.url(forResource: "icon_template", withExtension: "png"),
-            resourceDir?.appendingPathComponent("icon_template.png"),
-            resourceDir?.appendingPathComponent("SuperGrokBar_SuperGrokBar.bundle/icon_template.png"),
-            resourceDir?.appendingPathComponent("SuperGrokBar_SuperGrokBar.bundle/Contents/Resources/icon_template.png"),
-        ]
-        for case let url? in candidates {
-            if let img = NSImage(contentsOf: url) {
-                img.isTemplate = true
-                img.size = NSSize(width: 16, height: 16)
-                return img
-            }
-        }
-        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
-        if let img = NSImage(systemSymbolName: "xmark", accessibilityDescription: "SuperGrok")?
-            .withSymbolConfiguration(config) {
-            img.isTemplate = true
-            return img
-        }
-        return NSImage(size: NSSize(width: 16, height: 16))
-    }()
 
     // MARK: - Actions
 
