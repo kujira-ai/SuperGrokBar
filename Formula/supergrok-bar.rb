@@ -2,7 +2,7 @@ class SupergrokBar < Formula
   desc "macOS menu bar monitor for Grok Bot and Grok Build usage"
   homepage "https://github.com/kujira-ai/SuperGrokBar"
   url "https://github.com/kujira-ai/SuperGrokBar/archive/refs/tags/v1.2.4.tar.gz"
-  sha256 "a10bdb61ea4ee41aff5ea44bc5f84efbf862b064cd6b8e308a13b269fe10813f"
+  sha256 "b53bb52ee2bfcc7148567011649d03ee084aeb1a46cd0246b9f46c2b3a8345fb"
   license "MIT"
   head "https://github.com/kujira-ai/SuperGrokBar.git", branch: "main"
 
