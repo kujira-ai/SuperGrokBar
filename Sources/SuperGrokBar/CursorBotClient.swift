@@ -27,7 +27,17 @@ actor CursorBotClient {
         // Prefer Grok Bot's SuperGrok-linked session over Cursor.app (often a different free account).
         let token: String
         let email: String?
-        if let grokTok = try? GrokBotSession.loadAccessToken() {
+        var grokTok: String?
+        do {
+            grokTok = try GrokBotSession.loadAccessToken()
+        } catch GrokError.network(let msg) {
+            // Keychain prompt pending / timed out: keep the last Grok Bot value instead of
+            // silently switching to Cursor.app's (often unlinked) account.
+            throw GrokError.network(msg)
+        } catch {
+            grokTok = nil
+        }
+        if let grokTok {
             token = grokTok
             email = nil
         } else {

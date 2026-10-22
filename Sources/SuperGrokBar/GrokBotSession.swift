@@ -10,12 +10,11 @@ enum GrokBotSession {
             .appendingPathComponent("Library/Application Support/Grok Bot/sand-secrets.json")
     }
 
-    private static var cachedToken: (value: String, readAt: Date)?
     private static let cacheTTL: TimeInterval = 10 * 60
 
     static func loadAccessToken() throws -> String {
-        if let cachedToken, Date().timeIntervalSince(cachedToken.readAt) < cacheTTL {
-            return cachedToken.value
+        if let cached = KeychainCache.shared.token, Date().timeIntervalSince(cached.readAt) < cacheTTL {
+            return cached.value
         }
         let url = secretsURL
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -42,23 +41,43 @@ enum GrokBotSession {
             throw GrokError.cursorNotSignedIn
         }
         let token = try decryptElectronV10(blob)
-        cachedToken = (token, Date())
+        KeychainCache.shared.token = (token, Date())
         return token
     }
 
+    /// Upper bound on a single Keychain read. If macOS shows an access prompt, the read
+    /// blocks until the user answers; we give up after this and fall back (Cursor.app session
+    /// or the last known value) instead of stalling the refresh.
+    static let keychainTimeout: TimeInterval = 5
+
     private static func keychainPassword() throws -> Data {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "Grok Bot Safe Storage",
-            kSecAttrAccount as String: "Grok Bot Key",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data, !data.isEmpty else {
-            throw GrokError.cursorNotSignedIn
+        if let cached = KeychainCache.shared.value { return cached }
+        // Don't stack reads behind a prompt that is still waiting for the user.
+        guard KeychainCache.shared.beginRead() else {
+            throw GrokError.network("Keychain access for Grok Bot Safe Storage is waiting for approval")
         }
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: "Grok Bot Safe Storage",
+                kSecAttrAccount as String: "Grok Bot Key",
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne,
+            ]
+            var item: CFTypeRef?
+            let status = SecItemCopyMatching(query as CFDictionary, &item)
+            if status == errSecSuccess, let data = item as? Data, !data.isEmpty {
+                KeychainCache.shared.finishRead(data)
+            } else {
+                KeychainCache.shared.finishRead(nil)
+            }
+            done.signal()
+        }
+        if done.wait(timeout: .now() + keychainTimeout) == .timedOut {
+            throw GrokError.network("Keychain read timed out (approve the Keychain prompt with Always Allow)")
+        }
+        guard let data = KeychainCache.shared.value else { throw GrokError.cursorNotSignedIn }
         return data
     }
 
@@ -109,5 +128,38 @@ enum GrokBotSession {
               !token.isEmpty
         else { throw GrokError.parseFailed }
         return token
+    }
+}
+
+/// In-memory cache of the safeStorage key (read from the Keychain once per launch) and of
+/// the decrypted access token.
+private final class KeychainCache: @unchecked Sendable {
+    static let shared = KeychainCache()
+    private let lock = NSLock()
+    private var cached: Data?
+    private var reading = false
+    private var cachedToken: (value: String, readAt: Date)?
+
+    var token: (value: String, readAt: Date)? {
+        get { lock.lock(); defer { lock.unlock() }; return cachedToken }
+        set { lock.lock(); defer { lock.unlock() }; cachedToken = newValue }
+    }
+
+    var value: Data? {
+        lock.lock(); defer { lock.unlock() }
+        return cached
+    }
+
+    func beginRead() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if reading { return false }
+        reading = true
+        return true
+    }
+
+    func finishRead(_ data: Data?) {
+        lock.lock(); defer { lock.unlock() }
+        if let data { cached = data }
+        reading = false
     }
 }

@@ -125,15 +125,17 @@ brew uninstall supergrok-bar
 swift build
 swift run SuperGrokBar
 ./Scripts/install.sh
-./Scripts/package-release.sh 1.2.4
+./Scripts/package-release.sh 1.2.5
 ```
 
 ## Notes
 
 - Polls about every 60 seconds.
-- Menu bar is text only (no icon, no `%`): each quota's used % with a short label, e.g.
-  `Bu77 Bo70 Co0 Cw48` = Grok **Bu**ild, Grok **Bo**t, **Co**dex 5h window, **C**odex **w**eekly. A segment
-  is omitted when that provider has no data. Hover for the full breakdown; the dropdown lists every pool. Network to `grok.com` (Build credits) and `cursor.com` (`/api/dashboard/get-sand-usage-status` for Grok Bot). Grok Bot usage is metered on Cursor, not grok.com. Link SuperGrok on the Grok Bot plan screen if the bar says "link".
+- Menu bar is text only (no icon, no `%`): each quota's **remaining** % with a short label, e.g.
+  `Bu88 Bo8 Co48 Cw69` = Grok **Bu**ild, Grok **Bo**t, **Co**dex weekly, **C**odex 5-hour **w**indow. A segment
+  is omitted when that provider has no data. The item uses a small font and a tight fixed width; on notched
+  MacBooks macOS hides menu bar items that don't fit beside the notch, so if it disappears, remove or hide other
+  menu bar items (or hold ⌘ and drag it further right). Hover for the full breakdown; the dropdown lists every pool. Network to `grok.com` (Build credits) and `cursor.com` (`/api/dashboard/get-sand-usage-status` for Grok Bot). Grok Bot usage is metered on Cursor, not grok.com. Link SuperGrok on the Grok Bot plan screen if the bar says "link".
 - Independent of [onWatch](https://github.com/onllm-dev/onwatch).
 
 ## Logo

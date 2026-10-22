@@ -13,8 +13,8 @@ final class AppState {
     var isRefreshing = false
     var launchAtLoginEnabled: Bool = LaunchAtLogin.isEnabled
 
-    /// Menu-bar title: every available quota as a labeled used-% integer, no icon, no "%":
-    /// `Bu77 Bo70 Co0 Cw48` = Grok Build, Grok Bot, Codex 5h window, Codex weekly.
+    /// Menu-bar title: every available quota as a labeled REMAINING-% integer, no icon, no "%":
+    /// `Bu88 Bo8 Co48 Cw69` = Grok Build, Grok Bot, Codex weekly, Codex 5-hour window.
     /// A segment is omitted when that provider has no data; the full breakdown lives in
     /// the dropdown and tooltip.
     var barTitle: String {
@@ -24,23 +24,24 @@ final class AppState {
     /// Plain-text form of `barTitle`.
     var titleText: String { barTitle }
 
-    static let barLegend = "Bu = Grok Build · Bo = Grok Bot · Co = Codex 5h · Cw = Codex weekly (used %)"
+    static let barLegend = "Bu = Grok Build · Bo = Grok Bot · Co = Codex weekly · Cw = Codex 5h window (remaining %)"
 
     static func formatBarTitle(usage: GrokUsage?, codex: CodexUsage?, hasError: Bool) -> String {
-        func seg(_ label: String, _ v: Double?) -> String? {
+        func seg(_ label: String, used v: Double?) -> String? {
             guard let v, v.isFinite else { return nil }
-            return "\(label)\(Int(v.rounded()))"
+            return "\(label)\(Int(max(0, min(100, 100 - v)).rounded()))"
         }
         var build: Double? = usage?.grokPercent
         let bot: Double? = (usage?.needsSuperGrokLink ?? true) ? nil : usage?.botPercent
         if build == nil, bot == nil, let usage, !usage.needsSuperGrokLink, usage.usedPercent.isFinite {
             build = usage.usedPercent
         }
+        // Codex: `primary` is the 5-hour window, `secondary` is the weekly window.
         let parts = [
-            seg("Bu", build),
-            seg("Bo", bot),
-            seg("Co", codex?.primary?.usedPercent),
-            seg("Cw", codex?.secondary?.usedPercent),
+            seg("Bu", used: build),
+            seg("Bo", used: bot),
+            seg("Co", used: codex?.secondary?.usedPercent),
+            seg("Cw", used: codex?.primary?.usedPercent),
         ].compactMap { $0 }
         if !parts.isEmpty { return parts.joined(separator: " ") }
         if usage?.needsSuperGrokLink == true { return "link" }
@@ -113,23 +114,39 @@ final class AppState {
         refreshTask = nil
     }
 
+    /// Per-source deadline so one slow or blocked source (e.g. a pending Keychain prompt
+    /// for the Grok Bot session) can never stall the menu bar title.
+    private static let sourceTimeout: Double = 25
+
     func refresh() async {
         if isRefreshing { return }
         isRefreshing = true
         defer { isRefreshing = false }
 
         let previous = usage
-        async let grokUsage = try? client.fetchUsage()
-        async let botStatus = try? botClient.fetchStatus()
-        let fetchedGrok = await grokUsage
-        let fetchedBot = await botStatus
-        do {
-            codex = try await codexClient.fetchUsage()
+        let client = self.client
+        let botClient = self.botClient
+        let codexClient = self.codexClient
+        let timeout = Self.sourceTimeout
+
+        // Codex, Grok Build and Grok Bot are fetched in parallel; each is applied as soon as
+        // it (or its deadline) completes.
+        async let grokResult = Deadline.run(seconds: timeout, label: "Grok Build") { try await client.fetchUsage() }
+        async let botResult = Deadline.run(seconds: timeout, label: "Grok Bot") { try await botClient.fetchStatus() }
+        async let codexResult = Deadline.run(seconds: timeout, label: "Codex") { try await codexClient.fetchUsage() }
+
+        switch await codexResult {
+        case .success(let c):
+            codex = c
             codexError = nil
-        } catch {
+        case .failure(let error):
             codexError = error.localizedDescription
             if case CodexError.notLoggedIn = error { codex = nil }
         }
+        StatusItemController.shared.updateAppearance()
+
+        let fetchedGrok = try? (await grokResult).get()
+        let fetchedBot = try? (await botResult).get()
         let grok = fetchedGrok ?? Self.preservedGrok(from: previous)
         let bot = fetchedBot ?? Self.preservedBot(from: previous)
         usage = Self.combine(grok: grok, bot: bot)
@@ -144,6 +161,7 @@ final class AppState {
             lastError = nil
         }
         StatusItemController.shared.updateAppearance()
+        StatusItemController.log("title=\(barTitle)")
     }
 
     private static func preservedGrok(from usage: GrokUsage?) -> GrokUsage? {

@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 @MainActor
 final class StatusItemController: NSObject {
@@ -30,6 +31,17 @@ final class StatusItemController: NSObject {
 
     private static let autosaveName = "SuperGrokBar"
     private var watchdog: Timer?
+    private var lastVisibilityLog: String?
+
+    nonisolated private static let logger = Logger(subsystem: "com.kujira.SuperGrokBar", category: "statusitem")
+
+    nonisolated static func log(_ message: String) {
+        logger.notice("\(message, privacy: .public)")
+    }
+
+    /// Horizontal padding (total) around the title; smaller than AppKit's variable-length
+    /// default so the item is narrow enough to fit beside the notch on crowded menu bars.
+    private static let titlePadding: CGFloat = 8
 
     func install() {
         let menu = NSMenu()
@@ -132,9 +144,31 @@ final class StatusItemController: NSObject {
             || statusItem?.button?.window == nil
             || statusItem?.isVisible == false
         if missing {
+            Self.log("status item missing from menu bar; recreating")
             pinStatusItem(recreate: true)
         } else {
             statusItem?.isVisible = true
+        }
+        logVisibility()
+    }
+
+    /// macOS silently hides status items that don't fit in the menu bar (or would sit under
+    /// the notch). That can't be overridden by the app, but it can be detected and logged.
+    private func logVisibility() {
+        guard let window = statusItem?.button?.window else { return }
+        let frame = window.frame
+        let onScreen = window.occlusionState.contains(.visible)
+        var note = onScreen ? "visible" : "HIDDEN (menu bar full / behind notch)"
+        if let screen = window.screen ?? NSScreen.main,
+           let right = screen.auxiliaryTopRightArea,
+           frame.minX < screen.frame.minX + right.minX,
+           frame.maxX > screen.frame.minX + (screen.auxiliaryTopLeftArea?.maxX ?? 0) {
+            note += ", overlaps notch"
+        }
+        let line = "status item \(note) x=\(Int(frame.minX)) w=\(Int(frame.width)) title=\(state.barTitle)"
+        if line != lastVisibilityLog {
+            lastVisibilityLog = line
+            Self.log(line)
         }
     }
 
@@ -162,6 +196,11 @@ final class StatusItemController: NSObject {
         if button.attributedTitle != title {
             button.attributedTitle = title
         }
+        // Fixed, tight width (text + small padding) instead of variableLength's wide insets.
+        let length = ceil(title.size().width) + Self.titlePadding
+        if let item = statusItem, abs(item.length - length) > 0.5 {
+            item.length = length
+        }
         // Text only: no xAI / template image.
         if button.image != nil {
             button.image = nil
@@ -175,10 +214,10 @@ final class StatusItemController: NSObject {
         }
     }
 
-    /// Plain labeled numbers (e.g. "Bu77 Bo70 Co0 Cw48") in monospaced digits.
+    /// Plain labeled remaining-% numbers (e.g. "Bu88 Bo8 Co48 Cw69") in small monospaced digits.
     static func attributedTitle(_ text: String) -> NSAttributedString {
         NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .medium),
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
         ])
     }
 
@@ -188,14 +227,14 @@ final class StatusItemController: NSObject {
             if usage.needsSuperGrokLink {
                 parts.append("Grok Bot: SuperGrok not linked")
             } else if let bot = usage.botPercent {
-                var botPart = "Grok Bot \(AppState.percentLabel(bot)) used"
+                var botPart = "Grok Bot (Bo) \(AppState.percentLabel(max(0, 100 - bot))) left"
                 if let resets = usage.botResetsAt {
                     botPart += " (resets \(AppState.formatReset(resets)))"
                 }
                 parts.append(botPart)
             }
             if let grok = usage.grokPercent {
-                var grokPart = "Grok Build \(AppState.percentLabel(grok)) used"
+                var grokPart = "Grok Build (Bu) \(AppState.percentLabel(max(0, 100 - grok))) left"
                 if let resets = usage.grokResetsAt {
                     grokPart += " (resets \(AppState.formatReset(resets)))"
                 }
@@ -204,7 +243,7 @@ final class StatusItemController: NSObject {
                 parts.append("Grok Build unavailable")
             }
             if let c = state.codex {
-                parts.append("Codex 5h \(AppState.percentLabel(c.primary?.usedPercent ?? .nan)) / weekly \(AppState.percentLabel(c.secondary?.usedPercent ?? .nan)) used")
+                parts.append("Codex weekly (Co) \(AppState.percentLabel(c.secondary?.remainingPercent ?? .nan)) left / 5h window (Cw) \(AppState.percentLabel(c.primary?.remainingPercent ?? .nan)) left")
             } else if AppState.codexHasError(nil, error: state.codexError) {
                 parts.append("Codex unavailable")
             }
