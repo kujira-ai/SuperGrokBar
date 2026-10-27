@@ -50,35 +50,68 @@ enum GrokBotSession {
     /// or the last known value) instead of stalling the refresh.
     static let keychainTimeout: TimeInterval = 5
 
+    /// After the user denies the Keychain prompt (or it fails), don't ask again for this long,
+    /// so a menu bar refresh every 60 s can't keep re-raising the dialog.
+    static let deniedBackoff: TimeInterval = 60 * 60
+
+    /// `true` (menu bar app): the Keychain may show its "allow access" prompt.
+    /// `false` (headless `quota`): never show UI; fail fast if the ACL doesn't already trust us.
+    static var allowKeychainUI: Bool {
+        get { KeychainCache.shared.allowUI }
+        set { KeychainCache.shared.allowUI = newValue }
+    }
+
+    /// Forget a previous denial so the next read may prompt again (manual retry).
+    static func resetKeychainBackoff() { KeychainCache.shared.clearFailure() }
+
     private static func keychainPassword() throws -> Data {
         if let cached = KeychainCache.shared.value { return cached }
+        let allowUI = KeychainCache.shared.allowUI
+        if allowUI, let until = KeychainCache.shared.backoffUntil(deniedBackoff), until > Date() {
+            let f = DateFormatter()
+            f.dateFormat = "HH:mm"
+            throw GrokError.network("Keychain access to Grok Bot Safe Storage was denied; not asking again until \(f.string(from: until))")
+        }
         // Don't stack reads behind a prompt that is still waiting for the user.
         guard KeychainCache.shared.beginRead() else {
             throw GrokError.network("Keychain access for Grok Bot Safe Storage is waiting for approval")
         }
         let done = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
-            let query: [String: Any] = [
+            var query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: "Grok Bot Safe Storage",
                 kSecAttrAccount as String: "Grok Bot Key",
                 kSecReturnData as String: true,
                 kSecMatchLimit as String: kSecMatchLimitOne,
             ]
+            if !allowUI {
+                query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+            }
             var item: CFTypeRef?
             let status = SecItemCopyMatching(query as CFDictionary, &item)
             if status == errSecSuccess, let data = item as? Data, !data.isEmpty {
-                KeychainCache.shared.finishRead(data)
+                KeychainCache.shared.finishRead(data, status: status)
             } else {
-                KeychainCache.shared.finishRead(nil)
+                KeychainCache.shared.finishRead(nil, status: status)
             }
             done.signal()
         }
         if done.wait(timeout: .now() + keychainTimeout) == .timedOut {
             throw GrokError.network("Keychain read timed out (approve the Keychain prompt with Always Allow)")
         }
-        guard let data = KeychainCache.shared.value else { throw GrokError.cursorNotSignedIn }
-        return data
+        if let data = KeychainCache.shared.value { return data }
+        switch KeychainCache.shared.lastStatus {
+        case errSecItemNotFound:
+            throw GrokError.cursorNotSignedIn
+        case errSecInteractionNotAllowed, errSecAuthFailed, errSecUserCanceled:
+            if !allowUI {
+                throw GrokError.network("Keychain access to Grok Bot Safe Storage needs approval (headless; not prompting)")
+            }
+            throw GrokError.network("Keychain access to Grok Bot Safe Storage was denied")
+        default:
+            throw GrokError.network("Keychain read for Grok Bot Safe Storage failed (OSStatus \(KeychainCache.shared.lastStatus))")
+        }
     }
 
     private static func decryptElectronV10(_ b64: String) throws -> String {
@@ -131,23 +164,47 @@ enum GrokBotSession {
     }
 }
 
-/// In-memory cache of the safeStorage key (read from the Keychain once per launch) and of
-/// the decrypted access token.
+/// In-memory cache of the safeStorage key (read from the Keychain once per launch), of
+/// the decrypted access token, and of the last Keychain failure (for back-off).
 private final class KeychainCache: @unchecked Sendable {
     static let shared = KeychainCache()
     private let lock = NSLock()
     private var cached: Data?
     private var reading = false
     private var cachedToken: (value: String, readAt: Date)?
+    private var _allowUI = true
+    private var _lastStatus: OSStatus = errSecSuccess
+    private var failedAt: Date?
 
     var token: (value: String, readAt: Date)? {
         get { lock.lock(); defer { lock.unlock() }; return cachedToken }
         set { lock.lock(); defer { lock.unlock() }; cachedToken = newValue }
     }
 
+    var allowUI: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return _allowUI }
+        set { lock.lock(); defer { lock.unlock() }; _allowUI = newValue }
+    }
+
     var value: Data? {
         lock.lock(); defer { lock.unlock() }
         return cached
+    }
+
+    var lastStatus: OSStatus {
+        lock.lock(); defer { lock.unlock() }
+        return _lastStatus
+    }
+
+    /// End of the back-off window after a denied / failed interactive read, if any.
+    func backoffUntil(_ interval: TimeInterval) -> Date? {
+        lock.lock(); defer { lock.unlock() }
+        return failedAt.map { $0.addingTimeInterval(interval) }
+    }
+
+    func clearFailure() {
+        lock.lock(); defer { lock.unlock() }
+        failedAt = nil
     }
 
     func beginRead() -> Bool {
@@ -157,9 +214,15 @@ private final class KeychainCache: @unchecked Sendable {
         return true
     }
 
-    func finishRead(_ data: Data?) {
+    func finishRead(_ data: Data?, status: OSStatus) {
         lock.lock(); defer { lock.unlock() }
-        if let data { cached = data }
+        _lastStatus = status
+        if let data {
+            cached = data
+            failedAt = nil
+        } else if status != errSecItemNotFound {
+            failedAt = Date()
+        }
         reading = false
     }
 }

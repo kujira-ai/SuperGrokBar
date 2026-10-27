@@ -62,6 +62,15 @@ supergrok-bar quota --json   # stable JSON
 SuperGrokBar quota --json
 ```
 
+`quota` never raises a macOS Keychain prompt by default, so agents and scripts can call it freely.
+Grok Bot usage needs the "Grok Bot Safe Storage" Keychain key, which only the menu bar app reads
+(approve its prompt once with **Always Allow**). The app writes each Grok Bot result (usage numbers
+and dates only, no secrets) to `~/Library/Caches/SuperGrokBar/grok-bot-status.json` (mode 0600);
+`quota` uses it while it is under 3 minutes old (`"source": "app-cache"`, `cache_age_seconds`). Otherwise
+it tries a silent Keychain read (works only if that binary is already trusted) and, failing that,
+returns a cache up to 30 minutes old with `"stale": true`, or an error. `quota --allow-keychain`
+reads the Keychain live and may prompt; use it only interactively.
+
 Exit code is `0` if at least one provider returned data, `1` if all failed.
 Per-provider failures are reported in that provider's `error` field.
 
@@ -78,7 +87,9 @@ JSON schema (`schema_version: 1`):
       "ok": true,                                // false => see "error"
       "error": null,                             // string when ok == false
       "plan": "plus",                            // or null
-      "source": "api" | "session_log" | null,    // codex falls back to ~/.codex/sessions logs
+      "source": "api" | "app-cache" | "session_log" | null, // grok_bot: app-cache = menu bar app's value; codex falls back to ~/.codex/sessions logs
+      "cache_age_seconds": 42,                   // grok_bot with source app-cache only
+      "stale": false,                            // grok_bot with source app-cache only
       "limit_reached": false,                    // codex only
       "windows": [
         {
@@ -125,7 +136,7 @@ brew uninstall supergrok-bar
 swift build
 swift run SuperGrokBar
 ./Scripts/install.sh
-./Scripts/package-release.sh 1.2.5
+./Scripts/package-release.sh 1.2.6
 ```
 
 ## Notes

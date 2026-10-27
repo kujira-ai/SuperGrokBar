@@ -8,7 +8,7 @@ BIN_DIR="${APP_DIR}/Contents/MacOS"
 RES_DIR="${APP_DIR}/Contents/Resources"
 LABEL="com.kujira.SuperGrokBar"
 PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
-VERSION="1.2.5"
+VERSION="1.2.6"
 
 # Resolve packaged binary (Homebrew libexec or sibling of this script after release install)
 resolve_exec() {
@@ -40,6 +40,28 @@ resolve_exec() {
   fi
   echo "error: SuperGrokBar binary not found. Build with 'swift build -c release' or install via Homebrew." >&2
   exit 1
+}
+
+# Binary for headless `quota`: prefer the installed release (Homebrew / ~/Applications) over a
+# repo dev build, so agents calling this script from a checkout don't run a stale or
+# work-in-progress .build binary. SUPERGROK_BAR_DEV=1 uses the dev build instead.
+resolve_quota_exec() {
+  if [[ -n "${SUPERGROK_BAR_EXEC:-}" && -x "${SUPERGROK_BAR_EXEC}" ]]; then
+    echo "${SUPERGROK_BAR_EXEC}"
+    return
+  fi
+  if [[ "${SUPERGROK_BAR_DEV:-}" != "1" ]]; then
+    local c
+    for c in /opt/homebrew/opt/supergrok-bar/libexec/SuperGrokBar \
+             /usr/local/opt/supergrok-bar/libexec/SuperGrokBar \
+             "${BIN_DIR}/${APP_NAME}"; do
+      if [[ -x "$c" ]]; then
+        echo "$c"
+        return
+      fi
+    done
+  fi
+  resolve_exec
 }
 
 resolve_resource_dir() {
@@ -128,6 +150,11 @@ install_app() {
 PLIST
   echo -n 'APPL????' > "${APP_DIR}/Contents/PkgInfo"
 
+  # Give the bundle a real (ad-hoc) signature bound to its bundle identifier. A bare
+  # linker-signed binary is treated as unsigned by securityd, so "Always Allow" on its
+  # Keychain prompt doesn't reliably stick.
+  codesign --force --sign - --identifier "${LABEL}" "$APP_DIR" >/dev/null 2>&1 || true
+
   mkdir -p "${HOME}/Library/LaunchAgents"
   cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -192,7 +219,10 @@ Usage:
   supergrok-bar uninstall    Remove app + LaunchAgent
   supergrok-bar quota [--json]
                              Print Grok Build, Grok Bot and ChatGPT/Codex quotas
-                             (headless; exit 1 only if every provider fails)
+                             (headless; exit 1 only if every provider fails).
+                             Never shows a Keychain prompt: Grok Bot comes from the
+                             running menu bar app's cache. Add --allow-keychain to
+                             read it live (may prompt once).
   supergrok-bar version      Print version
   supergrok-bar help         Show this help
 
@@ -203,7 +233,7 @@ EOF
 case "${1:-start}" in
   start|install|"") install_app ;;
   uninstall|remove) uninstall_app ;;
-  quota|status) shift; exec "$(resolve_exec)" quota "$@" ;;
+  quota|status) shift; exec "$(resolve_quota_exec)" quota "$@" ;;
   version|--version|-v) echo "$VERSION" ;;
   help|--help|-h) usage ;;
   *)

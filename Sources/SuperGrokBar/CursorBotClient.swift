@@ -89,7 +89,7 @@ actor CursorBotClient {
             percent = nil
         }
 
-        return CursorBotStatus(
+        let status = CursorBotStatus(
             usagePercent: percent,
             resetsAt: Self.parseISO8601(obj["nextResetTimestampUtc"] as? String),
             periodStart: Self.parseISO8601(obj["currentPeriodStart"] as? String),
@@ -100,6 +100,9 @@ actor CursorBotClient {
                 ?? (obj["includedUsageSuperGrokPlan"] as? String),
             cursorEmail: email
         )
+        // Share the Grok Bot (Keychain-backed) value with headless `quota` callers.
+        if grokTok != nil { BotStatusCache.write(status) }
+        return status
     }
 
     private static func parseISO8601(_ raw: String?) -> Date? {
